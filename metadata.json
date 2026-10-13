@@ -1,0 +1,6 @@
+{
+  "name": "Casa Central Store POS & Operations",
+  "description": "Production-ready Point-of-Sale, order management, inventory asset tracking, and operations system for Casa Central Store.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
