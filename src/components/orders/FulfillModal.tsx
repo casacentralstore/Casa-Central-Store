@@ -290,17 +290,23 @@ export const FulfillModal: React.FC<FulfillModalProps> = ({
                 <FileText className="w-3.5 h-3.5 mr-1" />
                 <span>Support & Logistics Dispatch Info</span>
               </h4>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                Action Status upon fulfillment: <strong>Pick Up</strong>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                order.fulfillment_status === 'Picked Up'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                  : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+              }`}>
+                Action Status: <strong>{order.fulfillment_status === 'Picked Up' ? 'Picked Up (Preserved)' : 'Pick Up'}</strong>
               </span>
             </div>
 
             <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start space-x-2">
               <Package className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold">Fulfillment Action Workflow:</span>
+                <span className="font-bold">Fulfillment & Pickup Workflow:</span>
                 <p className="text-[11px] text-amber-800 mt-0.5">
-                  Once fulfilled, the order action status defaults to <strong>“Pick Up”</strong>. The store manager will subsequently update it to <strong>“Picked Up”</strong> once the package is picked up by the customer or carrier.
+                  {order.fulfillment_status === 'Picked Up'
+                    ? 'This order has already been marked as Picked Up. Fulfilling it will record the SO # and schedule without reverting the Picked Up mark.'
+                    : 'An order can be fulfilled before or after being picked up. You can toggle between "Pick Up" and "Picked Up" at any time.'}
                 </p>
               </div>
             </div>

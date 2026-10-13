@@ -123,10 +123,10 @@ export function createInventoryItem(input: UpsertInventoryInput, userId: string)
         input.description.trim(),
         input.condition || 'A',
         Math.max(1, input.quantity || 1),
-        Math.max(0, input.unit_cost || 0),
-        Math.max(0, input.selling_price || 0),
+        Math.round((Math.max(0, input.unit_cost || 0) + Number.EPSILON) * 100) / 100,
+        Math.round((Math.max(0, input.selling_price || 0) + Number.EPSILON) * 100) / 100,
         input.location?.trim() || 'Showroom Floor',
-        input.status || 'Available',
+        input.status || ((input.quantity !== undefined && input.quantity === 0) ? 'Sold' : 'Available'),
         input.source?.trim() || '',
         input.notes?.trim() || '',
         now,
@@ -167,6 +167,18 @@ export function updateInventoryItem(id: string, input: Partial<UpsertInventoryIn
 
     const now = new Date().toISOString();
 
+    let targetStatus = input.status ?? null;
+    if (input.quantity !== undefined && input.status === undefined) {
+      if (input.quantity > 0 && existing.status === 'Sold') {
+        targetStatus = 'Available';
+      } else if (input.quantity === 0 && existing.status === 'Available') {
+        targetStatus = 'Sold';
+      }
+    }
+
+    const roundedCost = input.unit_cost !== undefined ? Math.round((Math.max(0, input.unit_cost) + Number.EPSILON) * 100) / 100 : null;
+    const roundedPrice = input.selling_price !== undefined ? Math.round((Math.max(0, input.selling_price) + Number.EPSILON) * 100) / 100 : null;
+
     run(
       `UPDATE inventory_items SET
         sku = COALESCE(?, sku),
@@ -194,10 +206,10 @@ export function updateInventoryItem(id: string, input: Partial<UpsertInventoryIn
         input.description?.trim() ?? null,
         input.condition ?? null,
         input.quantity !== undefined ? Math.max(0, input.quantity) : null,
-        input.unit_cost !== undefined ? Math.max(0, input.unit_cost) : null,
-        input.selling_price !== undefined ? Math.max(0, input.selling_price) : null,
+        roundedCost,
+        roundedPrice,
         input.location?.trim() ?? null,
-        input.status ?? null,
+        targetStatus,
         input.source?.trim() ?? null,
         input.notes?.trim() ?? null,
         now,
@@ -252,6 +264,8 @@ export function bulkCreateInventoryItems(
 
       const id = 'inv-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
       const now = new Date().toISOString();
+      const qty = Math.max(0, Number(item.quantity) || 1);
+      const status = item.status?.trim() || (qty === 0 ? 'Sold' : 'Available');
 
       run(
         `INSERT INTO inventory_items (
@@ -267,11 +281,11 @@ export function bulkCreateInventoryItems(
           item.item_tag?.trim() || 'None',
           item.description.trim(),
           item.condition?.trim() || 'Brand New - Sealed Box',
-          Math.max(1, Number(item.quantity) || 1),
-          Math.max(0, Number(item.unit_cost) || 0),
-          Math.max(0, Number(item.selling_price) || 0),
+          qty,
+          Math.round((Math.max(0, Number(item.unit_cost) || 0) + Number.EPSILON) * 100) / 100,
+          Math.round((Math.max(0, Number(item.selling_price) || 0) + Number.EPSILON) * 100) / 100,
           item.location?.trim() || 'MS Appliances | Showroom',
-          item.status?.trim() || 'Available',
+          status,
           item.source?.trim() || 'Bulk Import',
           item.notes?.trim() || '',
           now,

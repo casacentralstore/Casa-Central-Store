@@ -3,6 +3,7 @@ import { Customer, User } from '../../types/index.ts';
 import { api } from '../../services/api.ts';
 import { formatCurrency, formatDate } from '../../utils/formatters.ts';
 import { CustomerSelectModal } from '../pos/CustomerSelectModal.tsx';
+import { MarketingCampaignModal } from './MarketingCampaignModal.tsx';
 import {
   Users,
   Search,
@@ -12,6 +13,8 @@ import {
   Receipt,
   Edit,
   X,
+  Megaphone,
+  CheckCircle,
 } from 'lucide-react';
 
 interface CustomersListProps {
@@ -20,6 +23,7 @@ interface CustomersListProps {
 }
 
 export const CustomersList: React.FC<CustomersListProps> = ({
+  currentUser,
   onOpenOrder,
 }) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -29,6 +33,8 @@ export const CustomersList: React.FC<CustomersListProps> = ({
   const [customerDetail, setCustomerDetail] = useState<(Customer & { orders: any[] }) | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showMarketingModal, setShowMarketingModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Edit Customer Modal State
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
@@ -116,14 +122,39 @@ export const CustomersList: React.FC<CustomersListProps> = ({
             Manage customer accounts, purchase history, and outstanding balances
           </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold rounded-lg shadow-2xs flex items-center transition-colors cursor-pointer"
-        >
-          <Plus className="w-4 h-4 mr-1.5" />
-          Add New Customer
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setShowMarketingModal(true)}
+            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg shadow-2xs flex items-center transition-colors cursor-pointer"
+          >
+            <Megaphone className="w-4 h-4 mr-1.5 text-amber-400" />
+            Marketing Email Campaign
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold rounded-lg shadow-2xs flex items-center transition-colors cursor-pointer"
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
+            Add New Customer
+          </button>
+        </div>
       </div>
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs flex items-center justify-between shadow-xs animate-in fade-in duration-200">
+          <div className="flex items-center space-x-2">
+            <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="font-semibold">{toastMessage}</span>
+          </div>
+          <button
+            onClick={() => setToastMessage(null)}
+            className="text-emerald-700 hover:text-emerald-900 cursor-pointer ml-2"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Search Toolbar */}
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs mb-4 flex items-center gap-3">
@@ -488,6 +519,17 @@ export const CustomersList: React.FC<CustomersListProps> = ({
           </div>
         </div>
       )}
+
+      {/* Marketing Campaign Modal */}
+      <MarketingCampaignModal
+        isOpen={showMarketingModal}
+        onClose={() => setShowMarketingModal(false)}
+        currentUser={currentUser}
+        onCampaignSent={msg => {
+          setToastMessage(msg);
+          setTimeout(() => setToastMessage(null), 6000);
+        }}
+      />
     </div>
   );
 };

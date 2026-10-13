@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Order, TaxSettings, User } from '../../types/index.ts';
 import { api } from '../../services/api.ts';
-import { formatCurrency, formatDate, formatDateTime } from '../../utils/formatters.ts';
+import { formatCurrency, formatDate, formatDateTime, formatTime } from '../../utils/formatters.ts';
 import { PaymentModal } from './PaymentModal.tsx';
 import { DocumentViewerModal } from '../documents/DocumentViewerModal.tsx';
 import { FulfillModal } from './FulfillModal.tsx';
@@ -284,32 +284,33 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 </div>
               )}
 
-              {Boolean(order.is_fulfilled || order.fulfillment_status || order.so_number) && (
-                <div className="pt-2 border-t border-slate-200/70 space-y-2">
-                  {/* Fulfillment Action Status Card */}
-                  <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-200/80 space-y-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                          Fulfillment Action Status
+              <div className="pt-2 border-t border-slate-200/70 space-y-2">
+                {/* Fulfillment Action Status Card */}
+                <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-200/80 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Pickup / Action Status
+                      </span>
+                      <div className="flex items-center space-x-1.5 mt-0.5">
+                        <span
+                          className={`px-2 py-0.5 rounded text-xs font-bold border ${
+                            order.fulfillment_status === 'Picked Up'
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                              : 'bg-indigo-100 text-indigo-900 border-indigo-300'
+                          }`}
+                        >
+                          {order.fulfillment_status || 'Pick Up'}
                         </span>
-                        <div className="flex items-center space-x-1.5 mt-0.5">
-                          <span
-                            className={`px-2 py-0.5 rounded text-xs font-bold border ${
-                              order.fulfillment_status === 'Picked Up'
-                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                : 'bg-indigo-100 text-indigo-900 border-indigo-300'
-                            }`}
-                          >
-                            {order.fulfillment_status || 'Pick Up'}
-                          </span>
-                          <span className="text-[11px] text-slate-500 font-medium">
-                            {order.fulfillment_status === 'Picked Up'
-                              ? 'Package collected by customer / carrier'
-                              : 'Default status: Ready for Pick Up'}
-                          </span>
-                        </div>
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          {order.fulfillment_status === 'Picked Up'
+                            ? (order.picked_up_date
+                                ? `Package picked up on ${formatDate(order.picked_up_date)} at ${formatTime(order.picked_up_date)}`
+                                : 'Package collected by customer / carrier')
+                            : 'Ready for Pick Up'}
+                        </span>
                       </div>
+                    </div>
 
                       <button
                         type="button"
@@ -355,8 +356,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                     <span>View / Update Logistics Details</span>
                   </button>
                 </div>
-              )}
-            </div>
+              </div>
 
             {/* Sales & Financial Overview */}
             <div className="bg-slate-900 text-white p-4 rounded-xl space-y-2 text-xs">

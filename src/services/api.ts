@@ -9,6 +9,9 @@ import {
   DocumentRecord,
   UserInvitation,
   SentEmail,
+  MarketingProduct,
+  MarketingCampaignPayload,
+  EmailConfigData,
 } from '../types/index.ts';
 
 let activeUserId: string = typeof localStorage !== 'undefined' ? localStorage.getItem('casa_user_id') || 'usr-admin-1' : 'usr-admin-1';
@@ -370,6 +373,40 @@ export const api = {
     request<{ success: boolean; message: string; syncedAt: string }>('/api/backup/log-to-sheet', {
       method: 'POST',
       body: JSON.stringify(data),
+    }),
+
+  // Marketing Campaigns
+  getCustomersWithEmail: () =>
+    request<Customer[]>('/api/customers-with-email'),
+
+  sendMarketingCampaign: (data: MarketingCampaignPayload) =>
+    request<{
+      success: boolean;
+      sentCount: number;
+      totalRecipients: number;
+      recipients: { name: string; email: string }[];
+      sentEmails: SentEmail[];
+      previewUrl?: string;
+      campaignId: string;
+    }>('/api/customers/send-marketing-campaign', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  // Email / SMTP Settings
+  getEmailConfig: () =>
+    request<EmailConfigData>('/api/settings/email-config'),
+
+  updateEmailConfig: (data: Partial<EmailConfigData>) =>
+    request<{ success: boolean; message: string }>('/api/settings/email-config', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  sendTestEmail: (email?: string) =>
+    request<{ success: boolean; data: any }>('/api/settings/test-email', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
     }),
 };
 

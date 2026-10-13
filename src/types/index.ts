@@ -45,6 +45,10 @@ export interface SentEmail {
   email_type: string;
   status: string;
   created_at: string;
+  from_email?: string;
+  from_name?: string;
+  preview_url?: string;
+  error_message?: string;
 }
 
 export interface Customer {
@@ -338,3 +342,34 @@ export const FULFILLMENT_ACTION_STATUSES = [
 ] as const;
 
 export type FulfillmentActionStatus = typeof FULFILLMENT_ACTION_STATUSES[number];
+
+export interface MarketingProduct {
+  id?: string;
+  brand: string;
+  model_number: string;
+  description: string;
+  price: number;
+  image_url: string;
+}
+
+export interface MarketingCampaignPayload {
+  subject: string;
+  headline?: string;
+  introMessage?: string;
+  products: MarketingProduct[]; // Exactly 5 products
+  customerIds?: string[];
+  additionalEmails?: string[];
+  testOnly?: boolean;
+  testEmail?: string;
+}
+
+export interface EmailConfigData {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass?: string;
+  defaultFrom: string;
+  isConfigured: boolean;
+  hasPassword?: boolean;
+}

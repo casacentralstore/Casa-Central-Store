@@ -41,6 +41,20 @@ export function formatDateTime(dateStr: string | undefined | null): string {
   }
 }
 
+export function formatTime(dateStr: string | undefined | null): string {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return '';
+  }
+}
+
 export function generateOrderPdf(
   order: Order,
   type: 'Invoice' | 'Receipt' | 'Packing Slip',

@@ -23,6 +23,7 @@ import {
   DollarSign,
   AlertTriangle,
   History,
+  ExternalLink,
 } from 'lucide-react';
 
 interface PaymentReminderModalProps {
@@ -157,6 +158,8 @@ export const PaymentReminderModal: React.FC<PaymentReminderModalProps> = ({
   const [sentSuccessDetails, setSentSuccessDetails] = useState<{
     sentCount: number;
     recipients: string[];
+    previewUrl?: string;
+    senderUsed?: string;
   } | null>(null);
 
   // History state
@@ -421,6 +424,8 @@ export const PaymentReminderModal: React.FC<PaymentReminderModalProps> = ({
       setSentSuccessDetails({
         sentCount: res.sentCount,
         recipients: recipientList,
+        previewUrl: (res as any).previewUrl,
+        senderUsed: `${currentUser.name} (${currentUser.email})`,
       });
 
       if (onSentSuccess) {
@@ -498,6 +503,27 @@ export const PaymentReminderModal: React.FC<PaymentReminderModalProps> = ({
             <p className="text-sm text-slate-600 mt-2 max-w-md">
               Dispatched <strong>{sentSuccessDetails.sentCount} email notifications</strong> to the Sales and Support teams to follow up on <strong>{selectedSummary.count} outstanding orders</strong> totaling <strong>{formatCurrency(selectedSummary.totalBalance)}</strong>.
             </p>
+
+            <div className="mt-3 text-xs text-slate-500">
+              Sender:{' '}
+              <strong className="text-slate-800">
+                {sentSuccessDetails.senderUsed || `${currentUser.name} (${currentUser.email})`}
+              </strong>
+            </div>
+
+            {sentSuccessDetails.previewUrl && (
+              <div className="mt-4">
+                <a
+                  href={sentSuccessDetails.previewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors shadow-sm"
+                >
+                  <ExternalLink className="w-4 h-4 mr-1.5" />
+                  View Delivered Email in Browser
+                </a>
+              </div>
+            )}
 
             <div className="mt-5 p-4 bg-slate-50 border border-slate-200 rounded-xl max-w-md w-full text-left text-xs">
               <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">
@@ -1396,7 +1422,15 @@ export const PaymentReminderModal: React.FC<PaymentReminderModalProps> = ({
 
             {/* Modal Bottom Footer */}
             <div className="bg-white border-t border-slate-200 px-5 sm:px-6 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
-              <div className="flex items-center space-x-2 text-xs text-slate-500">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span>
+                  Sender:{' '}
+                  <strong className="text-slate-900 font-bold">
+                    {currentUser.name}
+                  </strong>{' '}
+                  <span className="text-slate-400 font-mono">({currentUser.email})</span>
+                </span>
+                <span>·</span>
                 <span>
                   Recipients:{' '}
                   <strong className="text-slate-900 font-mono font-bold">

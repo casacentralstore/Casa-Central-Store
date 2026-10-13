@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Order, TaxSettings, User } from '../../types/index.ts';
 import { api } from '../../services/api.ts';
-import { formatCurrency, formatDate, formatDateTime } from '../../utils/formatters.ts';
+import { formatCurrency, formatDate, formatDateTime, formatTime } from '../../utils/formatters.ts';
 import { exportOrdersToCsv, exportOrdersToXlsx } from '../../utils/exportOrders.ts';
 import { OrderDetailModal } from './OrderDetailModal.tsx';
 import { PaymentModal } from './PaymentModal.tsx';
@@ -277,11 +277,19 @@ export const OrdersList: React.FC<OrdersListProps> = ({
   const handleTogglePickedUp = async (order: any) => {
     const isCurrentlyPickedUp = order.fulfillment_status === 'Picked Up';
     const nextStatus = isCurrentlyPickedUp ? 'Pick Up' : 'Picked Up';
+    const nowIso = new Date().toISOString();
     try {
       setOrders(prev =>
-        prev.map(o => (o.id === order.id ? { ...o, fulfillment_status: nextStatus } : o))
+        prev.map(o => (o.id === order.id ? {
+          ...o,
+          fulfillment_status: nextStatus,
+          picked_up_date: nextStatus === 'Picked Up' ? (o.picked_up_date || nowIso) : null,
+        } : o))
       );
-      await api.updateFulfillmentStatus(order.id, nextStatus);
+      const updated = await api.updateFulfillmentStatus(order.id, nextStatus);
+      if (updated) {
+        setOrders(prev => prev.map(o => (o.id === order.id ? { ...o, ...updated } : o)));
+      }
     } catch (err: any) {
       alert(err.message || 'Failed to update pickup status');
       fetchOrders();
@@ -661,15 +669,24 @@ export const OrdersList: React.FC<OrdersListProps> = ({
                             {order.logistics_method}
                           </span>
                           {order.fulfillment_status === 'Picked Up' ? (
-                            <button
-                              type="button"
-                              onClick={() => handleTogglePickedUp(order)}
-                              title="Marked as Picked Up. Click to revert to Pick Up if needed."
-                              className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 transition-colors cursor-pointer shadow-2xs"
-                            >
-                              <CheckCircle className="w-3 h-3 text-emerald-600 shrink-0" />
-                              <span>Picked Up</span>
-                            </button>
+                            <div>
+                              <button
+                                type="button"
+                                onClick={() => handleTogglePickedUp(order)}
+                                title="Marked as Picked Up. Click to revert to Pick Up if needed."
+                                className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 transition-colors cursor-pointer shadow-2xs"
+                              >
+                                <CheckCircle className="w-3 h-3 text-emerald-600 shrink-0" />
+                                <span>Picked Up</span>
+                              </button>
+                              {order.picked_up_date && (
+                                <div className="text-[10px] text-emerald-800 font-medium flex items-center mt-0.5 space-x-1" title="Pick up date & time">
+                                  <span>{formatDate(order.picked_up_date)}</span>
+                                  <span className="text-slate-400">·</span>
+                                  <span>{formatTime(order.picked_up_date)}</span>
+                                </div>
+                              )}
+                            </div>
                           ) : (
                             <button
                               type="button"

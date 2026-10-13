@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { queryAll, queryOne, run, persistDatabase } from '../db.ts';
 import { User, SentEmail } from '../../src/types/index.ts';
+import { sendEmail } from './emailService.ts';
 
 export interface OutstandingOrderSummary {
   totalOrders: number;
@@ -461,27 +462,28 @@ Casa Central Store
 /**
  * Send payment reminders to selected Sales and Support staff
  */
-export function sendPaymentReminders(
+export async function sendPaymentReminders(
   payload: SendPaymentReminderPayload,
   currentUserId: string
-): {
+): Promise<{
   success: boolean;
   sentCount: number;
   recipients: { name: string; email: string; role: string }[];
   sentEmails: SentEmail[];
   summary: OutstandingOrderSummary;
-} {
+  previewUrl?: string;
+}> {
   const currentUser = queryOne<User>('SELECT * FROM users WHERE id = ?', [currentUserId]) || {
     id: currentUserId,
-    name: 'Accounting / Operations',
-    email: 'accounting@casacentralstore.com',
-    role: 'Accounting',
+    name: 'Store Administrator',
+    email: 'ecommerce@casacentralstore.com',
+    role: 'Admin',
   };
 
   const sender = {
     name: currentUser.name || 'Store Administrator',
-    email: currentUser.email || 'accounting@casacentralstore.com',
-    role: currentUser.role || 'Accounting',
+    email: currentUser.email || 'ecommerce@casacentralstore.com',
+    role: currentUser.role || 'Admin',
   };
 
   // Get orders
@@ -533,6 +535,7 @@ export function sendPaymentReminders(
 
   const sentEmails: SentEmail[] = [];
   const now = new Date().toISOString();
+  let lastPreviewUrl: string | undefined = undefined;
 
   for (const recipient of recipients) {
     const { subject, html, text } = buildPaymentReminderEmail({
@@ -548,10 +551,34 @@ export function sendPaymentReminders(
     });
 
     const emailId = `eml-remind-${crypto.randomUUID()}`;
+    let emailStatus = 'sent';
+    let errorMessage: string | null = null;
+    let previewUrl: string | undefined = undefined;
+
+    try {
+      const result = await sendEmail({
+        to: recipient.email,
+        toName: recipient.name,
+        fromName: sender.name,
+        fromEmail: sender.email,
+        replyTo: sender.email,
+        subject,
+        html,
+        text,
+      });
+      if (result.previewUrl) {
+        previewUrl = result.previewUrl;
+        lastPreviewUrl = result.previewUrl;
+      }
+    } catch (err: any) {
+      console.error(`Failed to send email to ${recipient.email}:`, err);
+      emailStatus = 'failed';
+      errorMessage = err.message || 'Delivery error';
+    }
 
     run(
-      `INSERT INTO sent_emails (id, to_email, to_name, subject, body_html, body_text, email_type, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO sent_emails (id, to_email, to_name, subject, body_html, body_text, email_type, status, from_email, from_name, preview_url, error_message, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         emailId,
         recipient.email,
@@ -560,7 +587,11 @@ export function sendPaymentReminders(
         html,
         text,
         'payment_reminder',
-        'sent',
+        emailStatus,
+        sender.email,
+        sender.name,
+        previewUrl || null,
+        errorMessage || null,
         now,
       ]
     );
@@ -573,7 +604,11 @@ export function sendPaymentReminders(
       body_html: html,
       body_text: text,
       email_type: 'payment_reminder',
-      status: 'sent',
+      status: emailStatus,
+      from_email: sender.email,
+      from_name: sender.name,
+      preview_url: previewUrl,
+      error_message: errorMessage || undefined,
       created_at: now,
     });
   }
@@ -592,6 +627,8 @@ export function sendPaymentReminders(
         'payment_reminders',
         null,
         JSON.stringify({
+          sender_name: sender.name,
+          sender_email: sender.email,
           recipient_count: recipients.length,
           orders_count: orders.length,
           total_balance_due: summary.totalBalanceDue,
@@ -608,10 +645,11 @@ export function sendPaymentReminders(
 
   return {
     success: true,
-    sentCount: sentEmails.length,
+    sentCount: sentEmails.filter(e => e.status === 'sent').length,
     recipients,
     sentEmails,
     summary,
+    previewUrl: lastPreviewUrl,
   };
 }
 

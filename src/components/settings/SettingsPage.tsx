@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TaxSettings, User, UserRole, UserInvitation, SentEmail } from '../../types/index.ts';
 import { api } from '../../services/api.ts';
 import { formatDate } from '../../utils/formatters.ts';
@@ -57,6 +57,45 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [savingConfig, setSavingConfig] = useState(false);
   const [configSuccess, setConfigSuccess] = useState('');
   const [configError, setConfigError] = useState('');
+
+  // Email / SMTP Dispatch State
+  const [smtpConfig, setSmtpConfig] = useState({
+    host: '',
+    port: 587,
+    secure: false,
+    user: '',
+    pass: '',
+    defaultFrom: '',
+    isConfigured: false,
+    hasPassword: false,
+  });
+  const [savingSmtp, setSavingSmtp] = useState(false);
+  const [smtpSuccess, setSmtpSuccess] = useState('');
+  const [smtpError, setSmtpError] = useState('');
+  const [testEmailAddress, setTestEmailAddress] = useState(currentUser.email || '');
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchEmailConfig = async () => {
+      try {
+        const cfg = await api.getEmailConfig();
+        setSmtpConfig({
+          host: cfg.host || '',
+          port: cfg.port || 587,
+          secure: Boolean(cfg.secure),
+          user: cfg.user || '',
+          pass: '',
+          defaultFrom: cfg.defaultFrom || '',
+          isConfigured: Boolean(cfg.isConfigured),
+          hasPassword: Boolean(cfg.hasPassword),
+        });
+      } catch (err) {
+        console.error('Failed to load email config:', err);
+      }
+    };
+    fetchEmailConfig();
+  }, []);
 
   // Migration CSV Import State
   const [migrationType, setMigrationType] = useState<'customers' | 'inventory'>('customers');
@@ -150,6 +189,42 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       setConfigError(err.message || 'Failed to update settings');
     } finally {
       setSavingConfig(false);
+    }
+  };
+
+  const handleSaveSmtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingSmtp(true);
+    setSmtpSuccess('');
+    setSmtpError('');
+    try {
+      await api.updateEmailConfig(smtpConfig);
+      setSmtpSuccess('Email delivery settings saved successfully!');
+      setTimeout(() => setSmtpSuccess(''), 4000);
+    } catch (err: any) {
+      setSmtpError(err.message || 'Failed to update email settings');
+    } finally {
+      setSavingSmtp(false);
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    if (!testEmailAddress.trim()) {
+      setSmtpError('Please enter a destination email address for the test.');
+      return;
+    }
+    setSendingTestEmail(true);
+    setSmtpError('');
+    setTestEmailResult(null);
+    try {
+      const res = await api.sendTestEmail(testEmailAddress.trim());
+      setTestEmailResult(res.data);
+      setSmtpSuccess(`Test email dispatched successfully to ${testEmailAddress}!`);
+      setTimeout(() => setSmtpSuccess(''), 5000);
+    } catch (err: any) {
+      setSmtpError(err.message || 'Failed to dispatch test email');
+    } finally {
+      setSendingTestEmail(false);
     }
   };
 
@@ -302,8 +377,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left Column: Tax & Financial Rules */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
+        {/* Left Column: Tax & Email Settings */}
+        <div className="space-y-6">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
           <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
             <DollarSign className="w-4 h-4 text-amber-500" />
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-900">
@@ -445,7 +521,181 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </form>
         </div>
 
-        {/* Right Column: User Management (Add & Delete) & Legacy Migration */}
+        {/* Email & SMTP Engine Card */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center space-x-2">
+              <Mail className="w-4 h-4 text-amber-500" />
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                Outgoing Email Engine &amp; Dispatcher
+              </h2>
+            </div>
+            {smtpConfig.isConfigured ? (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                Custom SMTP Active
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                Ethereal Live Preview Mode
+              </span>
+            )}
+          </div>
+
+          <p className="text-xs text-slate-500">
+            Automated emails for <strong>Payment Reminders</strong> and <strong>Customer Marketing Campaigns</strong> are dispatched with the logged-in staff member as the sender (<em>{currentUser.name} &lt;{currentUser.email}&gt;</em>). Configure your store's custom SMTP or use the built-in test mailbox.
+          </p>
+
+          {smtpSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs rounded-lg flex items-center">
+              <CheckCircle className="w-4 h-4 mr-2 text-emerald-600 shrink-0" />
+              <span>{smtpSuccess}</span>
+            </div>
+          )}
+
+          {smtpError && (
+            <div className="p-3 bg-rose-50 border border-rose-300 text-rose-900 text-xs rounded-lg flex items-center">
+              <AlertCircle className="w-4 h-4 mr-2 text-rose-600 shrink-0" />
+              <span>{smtpError}</span>
+            </div>
+          )}
+
+          {/* Test Email Result Banner */}
+          {testEmailResult && testEmailResult.previewUrl && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center justify-between">
+              <div>
+                <strong>Test Email Dispatched!</strong> View delivery output via live preview:
+              </div>
+              <a
+                href={testEmailResult.previewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded text-[11px] transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5 mr-1" />
+                View Test Email
+              </a>
+            </div>
+          )}
+
+          <form onSubmit={handleSaveSmtp} className="space-y-3 text-xs">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold mb-1">SMTP Server Host</label>
+                <input
+                  type="text"
+                  placeholder="e.g. smtp.gmail.com"
+                  value={smtpConfig.host}
+                  onChange={e => setSmtpConfig({ ...smtpConfig, host: e.target.value })}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-[11px]"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">SMTP Port</label>
+                <input
+                  type="number"
+                  placeholder="587"
+                  value={smtpConfig.port}
+                  onChange={e => setSmtpConfig({ ...smtpConfig, port: parseInt(e.target.value, 10) || 587 })}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-[11px]"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold mb-1">SMTP Username / Account</label>
+                <input
+                  type="text"
+                  placeholder="account@casacentralstore.com"
+                  value={smtpConfig.user}
+                  onChange={e => setSmtpConfig({ ...smtpConfig, user: e.target.value })}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-[11px]"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">
+                  SMTP App Password / Secret {smtpConfig.hasPassword && <span className="text-emerald-600 font-normal">(Saved)</span>}
+                </label>
+                <input
+                  type="password"
+                  placeholder={smtpConfig.hasPassword ? '••••••••••••' : 'App Password'}
+                  value={smtpConfig.pass}
+                  onChange={e => setSmtpConfig({ ...smtpConfig, pass: e.target.value })}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-[11px]"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold mb-1">Default From Header</label>
+                <input
+                  type="text"
+                  placeholder="Casa Central Store <ecommerce@casacentralstore.com>"
+                  value={smtpConfig.defaultFrom}
+                  onChange={e => setSmtpConfig({ ...smtpConfig, defaultFrom: e.target.value })}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-[11px]"
+                />
+              </div>
+              <div className="flex items-center pt-5">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={smtpConfig.secure}
+                    onChange={e => setSmtpConfig({ ...smtpConfig, secure: e.target.checked })}
+                    className="w-4 h-4 text-amber-500 rounded border-slate-300 focus:ring-amber-500"
+                  />
+                  <span className="font-semibold text-slate-700">SSL/TLS Secure (Port 465)</span>
+                </label>
+              </div>
+            </div>
+
+            {isAdmin && (
+              <button
+                type="submit"
+                disabled={savingSmtp}
+                className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg shadow-2xs flex items-center justify-center cursor-pointer disabled:opacity-50"
+              >
+                <Save className="w-4 h-4 mr-1.5 text-amber-400" />
+                {savingSmtp ? 'Saving Email Settings...' : 'Save Email Server Configuration'}
+              </button>
+            )}
+          </form>
+
+          {/* Test Email Dispatch Section */}
+          <div className="pt-3 border-t border-slate-100">
+            <label className="block font-bold text-slate-800 mb-1.5 text-xs">
+              Test Real Email Dispatch
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="email"
+                placeholder="Recipient email address..."
+                value={testEmailAddress}
+                onChange={e => setTestEmailAddress(e.target.value)}
+                className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded"
+              />
+              <button
+                type="button"
+                onClick={handleSendTestEmail}
+                disabled={sendingTestEmail}
+                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg flex items-center shadow-2xs transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                {sendingTestEmail ? (
+                  <span>Sending...</span>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5 mr-1.5" />
+                    <span>Send Test Email</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Right Column: User Management (Add & Delete) & Legacy Migration */}
         <div className="space-y-6">
           {/* Users & Role Permissions Card */}
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">

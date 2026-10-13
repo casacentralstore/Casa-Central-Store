@@ -27,6 +27,16 @@ import {
   checkCustomerDuplicates,
 } from './server/services/customerService.ts';
 import {
+  getCustomersWithEmail,
+  sendMarketingCampaign,
+} from './server/services/marketingService.ts';
+import {
+  getEmailConfig,
+  updateEmailConfig,
+  verifyEmailConnection,
+  sendEmail,
+} from './server/services/emailService.ts';
+import {
   listInventory,
   searchAvailableInventory,
   getInventoryItemById,
@@ -246,6 +256,70 @@ app.put('/api/settings', (req, res) => {
   }
 });
 
+// Email Configuration & Test Endpoints
+app.get('/api/settings/email-config', (req, res) => {
+  try {
+    const config = getEmailConfig();
+    res.json({
+      success: true,
+      data: {
+        host: config.host,
+        port: config.port,
+        secure: config.secure,
+        user: config.user,
+        defaultFrom: config.defaultFrom,
+        isConfigured: config.isConfigured,
+        hasPassword: Boolean(config.pass),
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/settings/email-config', (req, res) => {
+  try {
+    const currentUser = (req as any).currentUser;
+    if (!checkPermission(currentUser.role, 'manage_settings')) {
+      return res.status(403).json({ success: false, error: 'Unauthorized: Admin role required to update email settings.' });
+    }
+    updateEmailConfig(req.body);
+    res.json({ success: true, message: 'Email configuration updated successfully.' });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/settings/test-email', async (req, res) => {
+  try {
+    const currentUser = (req as any).currentUser;
+    const targetEmail = req.body.email || currentUser?.email || 'p13.msappliances@gmail.com';
+    const result = await sendEmail({
+      to: targetEmail,
+      toName: currentUser?.name || 'Casa Central Staff',
+      fromName: currentUser?.name || 'Casa Central Store',
+      fromEmail: currentUser?.email,
+      subject: 'Casa Central Store - Email Dispatch Verification',
+      html: `
+        <div style="font-family: sans-serif; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+          <h2 style="color: #0f172a; margin-top: 0;">Casa Central Store &bull; Email System Active</h2>
+          <p style="color: #334155; font-size: 14px; line-height: 1.6;">This test email confirms that your outgoing email engine (via nodemailer) is fully operational.</p>
+          <div style="background-color: #f8fafc; padding: 14px; border-radius: 8px; font-size: 13px; line-height: 1.6; border: 1px solid #e2e8f0;">
+            <div><strong>Logged-in Sender:</strong> ${currentUser?.name} (${currentUser?.email})</div>
+            <div><strong>Recipient:</strong> ${targetEmail}</div>
+            <div><strong>Timestamp:</strong> ${new Date().toLocaleString()}</div>
+          </div>
+        </div>
+      `,
+      text: `Casa Central Store Email Test\nSender: ${currentUser?.name} (${currentUser?.email})\nRecipient: ${targetEmail}`,
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 // Authentication Endpoints
 app.post('/api/auth/login', (req, res) => {
   try {
@@ -454,6 +528,25 @@ app.put('/api/customers/:id', (req, res) => {
     const currentUser = (req as any).currentUser;
     const customer = updateCustomer(req.params.id, req.body, currentUser.id);
     res.json({ success: true, data: customer });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/customers-with-email', (req, res) => {
+  try {
+    const customers = getCustomersWithEmail();
+    res.json({ success: true, data: customers });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/customers/send-marketing-campaign', async (req, res) => {
+  try {
+    const currentUser = (req as any).currentUser;
+    const result = await sendMarketingCampaign(req.body, currentUser?.id || 'usr-admin-1');
+    res.json({ success: true, data: result });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
   }
@@ -813,7 +906,7 @@ app.get('/api/invoices/reminder-recipients', (req, res) => {
   }
 });
 
-app.post('/api/invoices/send-payment-reminder', (req, res) => {
+app.post('/api/invoices/send-payment-reminder', async (req, res) => {
   try {
     const currentUser = (req as any).currentUser;
     const { recipientIds, additionalEmails, orderIds, subject, messageBody, priority, includeOrdersTable, dueDate } = req.body;
@@ -825,7 +918,7 @@ app.post('/api/invoices/send-payment-reminder', (req, res) => {
       return res.status(400).json({ success: false, error: 'Email message content is required.' });
     }
 
-    const result = sendPaymentReminders(
+    const result = await sendPaymentReminders(
       {
         recipientIds: Array.isArray(recipientIds) ? recipientIds : [],
         additionalEmails: Array.isArray(additionalEmails) ? additionalEmails : [],
@@ -836,7 +929,7 @@ app.post('/api/invoices/send-payment-reminder', (req, res) => {
         includeOrdersTable: includeOrdersTable !== false,
         dueDate,
       },
-      currentUser?.id || 'system'
+      currentUser?.id || 'usr-admin-1'
     );
 
     res.json({ success: true, data: result });

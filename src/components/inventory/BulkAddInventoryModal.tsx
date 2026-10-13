@@ -861,12 +861,12 @@ export const BulkAddInventoryModal: React.FC<BulkAddInventoryModalProps> = ({
                               type="number"
                               step="0.01"
                               min="0"
-                              value={row.selling_price}
+                              value={row.selling_price !== undefined ? Number(row.selling_price || 0).toFixed(2) : '0.00'}
                               onChange={(e) =>
                                 handleUpdateRow(
                                   row.id,
                                   'selling_price',
-                                  parseFloat(e.target.value) || 0
+                                  Math.round(((parseFloat(e.target.value) || 0) + Number.EPSILON) * 100) / 100
                                 )
                               }
                               className="w-full px-2 py-1 text-xs text-right border border-slate-300 rounded-md focus:ring-1 focus:ring-amber-500 outline-hidden bg-white font-mono font-semibold text-emerald-800"

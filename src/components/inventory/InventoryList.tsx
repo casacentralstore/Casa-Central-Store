@@ -92,10 +92,16 @@ export const InventoryList: React.FC<InventoryListProps> = ({
       return;
     }
     if (field === 'selling_price') {
-      numVal = Math.round(numVal * 100) / 100;
+      numVal = Math.round((numVal + Number.EPSILON) * 100) / 100;
     }
     const currentVal = (item as any)[field];
     if (numVal === currentVal) {
+      if (field === 'selling_price') {
+        setInlineValues(prev => ({
+          ...prev,
+          [item.id]: { ...prev[item.id], selling_price: numVal.toFixed(2) },
+        }));
+      }
       return; // No change
     }
 
@@ -105,6 +111,13 @@ export const InventoryList: React.FC<InventoryListProps> = ({
       setItems(prev =>
         prev.map(it => (it.id === item.id ? { ...it, [field]: numVal } : it))
       );
+      setInlineValues(prev => ({
+        ...prev,
+        [item.id]: {
+          ...prev[item.id],
+          [field]: field === 'selling_price' ? numVal.toFixed(2) : String(numVal),
+        },
+      }));
       setSavedRowId(key);
       setTimeout(() => {
         setSavedRowId(prev => (prev === key ? null : prev));
@@ -193,7 +206,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({
       condition: item.condition,
       quantity: item.quantity,
       unit_cost: item.unit_cost,
-      selling_price: item.selling_price,
+      selling_price: Number(item.selling_price || 0).toFixed(2) as any,
       location: item.location,
       status: item.status,
       source: item.source || '',
@@ -214,7 +227,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({
         const updatedPrice = Math.max(0, parseFloat(String(modalForm.selling_price)) || 0);
         await api.updateInventoryItem(editingItem.id, {
           quantity: updatedQty,
-          selling_price: Math.round(updatedPrice * 100) / 100,
+          selling_price: Math.round((updatedPrice + Number.EPSILON) * 100) / 100,
         });
         setShowUpsertModal(false);
         fetchInventory();
@@ -495,7 +508,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({
                           value={
                             inlineValues[item.id]?.selling_price !== undefined
                               ? inlineValues[item.id]!.selling_price
-                              : item.selling_price
+                              : Number(item.selling_price || 0).toFixed(2)
                           }
                           onChange={(e) =>
                             handleInlineChange(item.id, 'selling_price', e.target.value)
@@ -866,7 +879,13 @@ export const InventoryList: React.FC<InventoryListProps> = ({
                         step="0.01"
                         min="0"
                         value={modalForm.selling_price}
-                        onChange={e => setModalForm({ ...modalForm, selling_price: Math.max(0, parseFloat(e.target.value) || 0) })}
+                        onChange={e => setModalForm({ ...modalForm, selling_price: e.target.value as any })}
+                        onBlur={e => {
+                          const val = parseFloat(e.target.value);
+                          if (!isNaN(val)) {
+                            setModalForm({ ...modalForm, selling_price: (Math.round((val + Number.EPSILON) * 100) / 100).toFixed(2) as any });
+                          }
+                        }}
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono font-bold"
                       />
                     </div>

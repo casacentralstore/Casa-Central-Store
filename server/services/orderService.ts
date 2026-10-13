@@ -219,19 +219,25 @@ export function createOrder(payload: CreateOrderPayload, userId: string): Order 
     const effectiveState = payload.state || customer.state || 'NJ';
     const effectiveZip = payload.zip || customer.zip || '07087';
 
-    // 3. Validate unique physical inventory availability
+    // 3. Validate unique physical inventory availability and stock
     for (const item of payload.items) {
+      const reqQty = Math.max(1, Number(item.quantity) || 1);
       if (item.inventory_item_id) {
-        const inv = queryOne<{ status: string; serial_number: string; item_tag: string }>(
-          'SELECT status, serial_number, item_tag FROM inventory_items WHERE id = ?',
+        const inv = queryOne<{ status: string; serial_number: string; item_tag: string; quantity: number }>(
+          'SELECT status, serial_number, item_tag, quantity FROM inventory_items WHERE id = ?',
           [item.inventory_item_id]
         );
         if (!inv) {
           throw new Error(`Inventory item "${item.sku}" not found in database.`);
         }
-        if (inv.status !== 'Available') {
+        if (inv.status !== 'Available' || inv.quantity <= 0) {
           throw new Error(
-            `Inventory asset "${item.sku}" (Serial: ${inv.serial_number || 'N/A'}, Tag: ${inv.item_tag || 'N/A'}) is not available (Current status: ${inv.status}).`
+            `Inventory asset "${item.sku}" (Serial: ${inv.serial_number || 'N/A'}, Tag: ${inv.item_tag || 'N/A'}) is not available (Current status: ${inv.status}, Stock: ${inv.quantity}).`
+          );
+        }
+        if (inv.quantity < reqQty) {
+          throw new Error(
+            `Requested quantity (${reqQty}) exceeds available stock (${inv.quantity}) for "${item.sku}".`
           );
         }
       } else if (item.serial_number && item.serial_number.trim() !== '') {
@@ -357,10 +363,15 @@ export function createOrder(payload: CreateOrderPayload, userId: string): Order 
       );
 
       if (item.inventory_item_id) {
-        run(
-          'UPDATE inventory_items SET status = ?, updated_at = ? WHERE id = ?',
-          ['Sold', now, item.inventory_item_id]
-        );
+        const inv = queryOne<{ quantity: number }>('SELECT quantity FROM inventory_items WHERE id = ?', [item.inventory_item_id]);
+        if (inv) {
+          const newQty = Math.max(0, inv.quantity - qty);
+          const newStatus = newQty === 0 ? 'Sold' : 'Available';
+          run(
+            'UPDATE inventory_items SET quantity = ?, status = ?, updated_at = ? WHERE id = ?',
+            [newQty, newStatus, now, item.inventory_item_id]
+          );
+        }
       }
     }
 
@@ -454,23 +465,30 @@ export function updateOrder(id: string, payload: Partial<CreateOrderPayload>, ex
 
     if (payload.items && payload.items.length > 0) {
       const oldItems = queryAll<OrderItem>('SELECT * FROM order_items WHERE order_id = ?', [id]);
+      // 1. Restore stock from old items
       for (const oldItem of oldItems) {
         if (oldItem.inventory_item_id) {
-          const stillThere = payload.items.some(i => i.inventory_item_id === oldItem.inventory_item_id);
-          if (!stillThere) {
-            run('UPDATE inventory_items SET status = ?, updated_at = ? WHERE id = ?', ['Available', now, oldItem.inventory_item_id]);
+          const inv = queryOne<{ quantity: number }>('SELECT quantity FROM inventory_items WHERE id = ?', [oldItem.inventory_item_id]);
+          if (inv) {
+            const restoredQty = inv.quantity + (Number(oldItem.quantity) || 1);
+            run('UPDATE inventory_items SET quantity = ?, status = ?, updated_at = ? WHERE id = ?', [restoredQty, 'Available', now, oldItem.inventory_item_id]);
           }
         }
       }
 
+      // 2. Validate availability and stock for requested items
       for (const item of payload.items) {
+        const reqQty = Math.max(1, Number(item.quantity) || 1);
         if (item.inventory_item_id) {
-          const inv = queryOne<{ status: string }>('SELECT status FROM inventory_items WHERE id = ?', [item.inventory_item_id]);
-          if (inv && inv.status !== 'Available') {
-            const wasOurs = oldItems.some(oi => oi.inventory_item_id === item.inventory_item_id);
-            if (!wasOurs) {
-              throw new Error(`Inventory item ${item.sku} is not available.`);
-            }
+          const inv = queryOne<{ status: string; quantity: number }>('SELECT status, quantity FROM inventory_items WHERE id = ?', [item.inventory_item_id]);
+          if (!inv) {
+            throw new Error(`Inventory item ${item.sku} not found.`);
+          }
+          if (inv.status !== 'Available' && inv.quantity <= 0) {
+            throw new Error(`Inventory item ${item.sku} is not available.`);
+          }
+          if (inv.quantity < reqQty) {
+            throw new Error(`Insufficient stock for "${item.sku}". Available: ${inv.quantity}, requested: ${reqQty}.`);
           }
         }
       }
@@ -601,7 +619,12 @@ export function updateOrder(id: string, payload: Partial<CreateOrderPayload>, ex
         );
 
         if (item.inventory_item_id) {
-          run('UPDATE inventory_items SET status = ?, updated_at = ? WHERE id = ?', ['Sold', now, item.inventory_item_id]);
+          const inv = queryOne<{ quantity: number }>('SELECT quantity FROM inventory_items WHERE id = ?', [item.inventory_item_id]);
+          if (inv) {
+            const newQty = Math.max(0, inv.quantity - qty);
+            const newStatus = newQty === 0 ? 'Sold' : 'Available';
+            run('UPDATE inventory_items SET quantity = ?, status = ?, updated_at = ? WHERE id = ?', [newQty, newStatus, now, item.inventory_item_id]);
+          }
         }
       }
     } else {
@@ -684,7 +707,11 @@ export function cancelOrder(id: string, reason: string, userId: string): Order {
     if (order.items) {
       for (const item of order.items) {
         if (item.inventory_item_id) {
-          run('UPDATE inventory_items SET status = ?, updated_at = ? WHERE id = ?', ['Available', now, item.inventory_item_id]);
+          const inv = queryOne<{ quantity: number }>('SELECT quantity FROM inventory_items WHERE id = ?', [item.inventory_item_id]);
+          if (inv) {
+            const restoredQty = inv.quantity + (Number(item.quantity) || 1);
+            run('UPDATE inventory_items SET quantity = ?, status = ?, updated_at = ? WHERE id = ?', [restoredQty, 'Available', now, item.inventory_item_id]);
+          }
         }
       }
     }
@@ -730,7 +757,10 @@ export function fulfillOrder(id: string, payload: FulfillOrderPayload, userId: s
 
     const now = new Date().toISOString();
     const updatedStatus = existing.status;
-    const initialActionStatus = 'Pick Up';
+    // CRITICAL: Preserve existing fulfillment_status (e.g. if already 'Picked Up'), default to 'Pick Up' only if not set
+    const preservedFulfillmentStatus = existing.fulfillment_status === 'Picked Up'
+      ? 'Picked Up'
+      : (existing.fulfillment_status || 'Pick Up');
 
     run(
       `UPDATE orders SET
@@ -752,7 +782,7 @@ export function fulfillOrder(id: string, payload: FulfillOrderPayload, userId: s
         payload.tracking_number || '',
         payload.delivery_schedule || '',
         payload.delivery_address ?? null,
-        initialActionStatus,
+        preservedFulfillmentStatus,
         updatedStatus,
         now,
         now,
@@ -770,8 +800,8 @@ export function fulfillOrder(id: string, payload: FulfillOrderPayload, userId: s
         'ORDER_FULFILLED',
         'order',
         id,
-        JSON.stringify({ so_number: existing.so_number, is_fulfilled: existing.is_fulfilled }),
-        JSON.stringify({ ...payload, fulfillment_status: initialActionStatus, is_fulfilled: 1 }),
+        JSON.stringify({ so_number: existing.so_number, is_fulfilled: existing.is_fulfilled, fulfillment_status: existing.fulfillment_status }),
+        JSON.stringify({ ...payload, fulfillment_status: preservedFulfillmentStatus, is_fulfilled: 1 }),
         now,
       ]
     );

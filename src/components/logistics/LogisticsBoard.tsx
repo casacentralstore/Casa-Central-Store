@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Order } from '../../types/index.ts';
 import { api } from '../../services/api.ts';
 import { FulfillModal } from '../orders/FulfillModal.tsx';
-import { formatDate, formatDateTime } from '../../utils/formatters.ts';
+import { formatDate, formatDateTime, formatTime } from '../../utils/formatters.ts';
 import {
   Truck,
   Package,
@@ -432,17 +432,18 @@ export const LogisticsBoard: React.FC<LogisticsBoardProps> = ({
                         </div>
                       </td>
 
-                      {/* 6. Pick Up Date (automatically filled once order is marked as Picked Up) */}
+                      {/* 6. Pick Up Date (Date & Time when order is picked up) */}
                       <td className="py-3 px-3 align-middle text-slate-700">
                         {order.picked_up_date ? (
-                          <div>
+                          <div className="space-y-0.5">
                             <div className="flex items-center space-x-1.5 font-bold text-xs text-slate-900">
                               <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                               <span>{formatDate(order.picked_up_date)}</span>
                             </div>
-                            <span className="text-[10px] text-slate-500 font-sans ml-5 block">
-                              {formatDateTime(order.picked_up_date).split(',')[1]?.trim() || ''}
-                            </span>
+                            <div className="flex items-center space-x-1 text-[11px] font-semibold text-emerald-700 ml-5">
+                              <Clock className="w-3 h-3 text-emerald-500 shrink-0" />
+                              <span>{formatTime(order.picked_up_date)}</span>
+                            </div>
                           </div>
                         ) : (
                           <span className="text-slate-400 text-xs italic">

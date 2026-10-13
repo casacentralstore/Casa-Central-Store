@@ -423,6 +423,24 @@ function setupSchema(database: Database) {
   try {
     database.exec("UPDATE orders SET invoiced_at = updated_at WHERE invoice_number IS NOT NULL AND invoice_number != '' AND (invoiced_at IS NULL OR invoiced_at = '');");
   } catch {}
+  try {
+    database.exec("UPDATE inventory_items SET status = 'Available' WHERE status = 'Sold' AND quantity > 0;");
+  } catch {}
+  try {
+    database.exec("UPDATE inventory_items SET status = 'Sold' WHERE quantity <= 0 AND status = 'Available';");
+  } catch {}
+  try {
+    database.exec("ALTER TABLE sent_emails ADD COLUMN from_email TEXT;");
+  } catch {}
+  try {
+    database.exec("ALTER TABLE sent_emails ADD COLUMN from_name TEXT;");
+  } catch {}
+  try {
+    database.exec("ALTER TABLE sent_emails ADD COLUMN preview_url TEXT;");
+  } catch {}
+  try {
+    database.exec("ALTER TABLE sent_emails ADD COLUMN error_message TEXT;");
+  } catch {}
 }
 
 function seedInitialData(database: Database) {
