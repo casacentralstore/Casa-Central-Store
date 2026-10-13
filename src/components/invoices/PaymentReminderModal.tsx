@@ -301,7 +301,7 @@ export const PaymentReminderModal: React.FC<PaymentReminderModalProps> = ({
     const clean = customEmailInput.trim().toLowerCase();
     if (!clean) return;
     if (!clean.includes('@') || !clean.includes('.')) {
-      alert('Please enter a valid email address.');
+      setSendError('Please enter a valid email address.');
       return;
     }
     if (!additionalEmails.includes(clean)) {

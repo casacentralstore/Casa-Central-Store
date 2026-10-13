@@ -350,5 +350,27 @@ export const api = {
         exportedAt: string;
       };
     }>('/api/backup/dataset'),
+
+  // Google Sheet Zero-Auth Master Logger
+  getGoogleSheetConfig: () =>
+    request<{
+      webhookUrl: string;
+      sheetUrl: string;
+      autoSync: boolean;
+      lastSync: string;
+    }>('/api/backup/google-sheet-config'),
+
+  updateGoogleSheetConfig: (data: { webhookUrl?: string; sheetUrl?: string; autoSync?: boolean }) =>
+    request<{ success: boolean; message: string }>('/api/backup/google-sheet-config', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  logToGoogleSheet: (data: { webhookUrl?: string; action?: string; tab?: string; rows?: any[][] }) =>
+    request<{ success: boolean; message: string; syncedAt: string }>('/api/backup/log-to-sheet', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 };
+
 

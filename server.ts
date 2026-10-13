@@ -735,6 +735,7 @@ app.post('/api/orders', (req, res) => {
   try {
     const currentUser = (req as any).currentUser;
     const order = createOrder(req.body, currentUser.id);
+    logOrderToGoogleSheet(order.id).catch(() => {});
     res.json({ success: true, data: order });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
@@ -1115,6 +1116,151 @@ app.get('/api/backup/dataset', (req, res) => {
         },
       },
     });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Format order rows for attached Google Sheet format (31 columns)
+function formatOrderRowsForSheet(order: any, customer: any, items: any[]): any[][] {
+  const round2 = (val: any) => Number(val || 0).toFixed(2);
+  const taxStatus = order.tax_exempt ? 'Tax Exempt' : Number(order.sales_tax || 0) > 0 ? 'Taxed' : 'Non-Taxed';
+  const formatDt = (d?: string) =>
+    d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const formatD = (d?: string) =>
+    d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+
+  const safeItems = items && items.length > 0 ? items : [null];
+  return safeItems.map((item: any, idx: number) => {
+    const qty = item ? Number(item.quantity || 1) : 0;
+    const unitPrice = item ? Number(item.unit_price || 0) : 0;
+    const lineTotal = qty * unitPrice;
+    const lineNumber = item ? (item.line_number ?? (idx + 1)) : 1;
+    return [
+      order.order_number || '',
+      formatDt(order.created_at),
+      formatD(order.transaction_date),
+      customer?.display_name || 'N/A',
+      customer?.phone || '',
+      customer?.email || '',
+      order.sales_rep_name || 'Staff',
+      order.lead_source || '',
+      order.logistics_method || 'Pick Up',
+      order.payment_method || 'Cash',
+      order.status || 'Pending',
+      order.fulfillment_status || 'Pending',
+      round2(order.subtotal),
+      round2(order.shipping_amount),
+      round2(order.installation_fee),
+      round2(order.discount),
+      round2(order.credit),
+      round2(order.sales_tax),
+      round2(order.credit_card_charge),
+      round2(order.invoice_total),
+      round2(order.amount_paid),
+      round2(order.balance_due),
+      taxStatus,
+      item ? (item.sku || '') : '',
+      item ? (item.model_number || '') : '',
+      item ? (item.serial_number || '') : '',
+      item ? (item.description || '') : '',
+      item ? (item.condition || '') : '',
+      item ? qty : '',
+      item ? unitPrice.toFixed(2) : '',
+      item ? lineTotal.toFixed(2) : '',
+      lineNumber,
+    ];
+  });
+}
+
+async function logOrderToGoogleSheet(orderId: string) {
+  try {
+    const webhookRow = queryOne<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['google_sheet_webhook_url']);
+    const autoSyncRow = queryOne<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['google_sheet_auto_sync']);
+    if (!webhookRow?.value || autoSyncRow?.value === 'false') return;
+
+    const order = queryOne<any>('SELECT * FROM orders WHERE id = ?', [orderId]);
+    if (!order) return;
+    const customer = queryOne<any>('SELECT * FROM customers WHERE id = ?', [order.customer_id]);
+    const items = queryAll<any>('SELECT * FROM order_items WHERE order_id = ? ORDER BY line_number ASC', [orderId]);
+    const rep = order.sales_rep_id ? queryOne<any>('SELECT name FROM users WHERE id = ?', [order.sales_rep_id]) : null;
+    order.sales_rep_name = rep ? rep.name : 'Staff';
+
+    const rows = formatOrderRowsForSheet(order, customer, items);
+    await fetch(webhookRow.value, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'append', tab: 'Orders', rows }),
+    });
+  } catch (err) {
+    console.warn('Background Google Sheet logging note:', err);
+  }
+}
+
+app.get('/api/backup/google-sheet-config', (req, res) => {
+  try {
+    const webhook = queryOne<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['google_sheet_webhook_url'])?.value || '';
+    const sheetUrl = queryOne<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['google_sheet_url'])?.value || '';
+    const autoSync = queryOne<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['google_sheet_auto_sync'])?.value !== 'false';
+    const lastSync = queryOne<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['google_sheet_last_sync'])?.value || '';
+    res.json({
+      success: true,
+      data: {
+        webhookUrl: webhook,
+        sheetUrl: sheetUrl,
+        autoSync: autoSync,
+        lastSync: lastSync,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/backup/google-sheet-config', (req, res) => {
+  try {
+    const { webhookUrl, sheetUrl, autoSync } = req.body;
+    const now = new Date().toISOString();
+    const saveSetting = (k: string, v: string) => {
+      run(
+        'INSERT INTO settings (key, value, description, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?',
+        [k, v, '', now, v, now]
+      );
+    };
+    if (webhookUrl !== undefined) saveSetting('google_sheet_webhook_url', String(webhookUrl).trim());
+    if (sheetUrl !== undefined) saveSetting('google_sheet_url', String(sheetUrl).trim());
+    if (autoSync !== undefined) saveSetting('google_sheet_auto_sync', String(Boolean(autoSync)));
+
+    res.json({
+      success: true,
+      message: 'Google Sheet configuration saved successfully.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/backup/log-to-sheet', async (req, res) => {
+  try {
+    const { webhookUrl, action, tab, rows } = req.body;
+    const url = webhookUrl || queryOne<{ value: string }>('SELECT value FROM settings WHERE key = ?', ['google_sheet_webhook_url'])?.value;
+    if (!url) {
+      return res.status(400).json({ success: false, error: 'Google Sheet Webhook URL is not configured.' });
+    }
+
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: action || 'append', tab: tab || 'Orders', rows: rows || [] }),
+    });
+
+    const now = new Date().toISOString();
+    run(
+      'INSERT INTO settings (key, value, description, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?',
+      ['google_sheet_last_sync', now, '', now, now, now]
+    );
+
+    res.json({ success: true, message: 'Data logged to Google Sheet successfully.', syncedAt: now });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }

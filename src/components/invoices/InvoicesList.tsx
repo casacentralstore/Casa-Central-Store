@@ -124,6 +124,9 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({
     const pendingCount = totalFulfilled - invoicedCount;
     const totalInvoiceAmount = orders.reduce((sum, o) => sum + (o.invoice_total || 0), 0);
     const totalBalanceDue = orders.reduce((sum, o) => sum + (o.balance_due || 0), 0);
+    const outstandingCount = orders.filter(
+      o => (o.status === 'Pending' || o.status === 'Partially Paid') && (o.balance_due || 0) > 0
+    ).length;
 
     return {
       totalFulfilled,
@@ -131,6 +134,7 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({
       pendingCount,
       totalInvoiceAmount,
       totalBalanceDue,
+      outstandingCount,
     };
   }, [orders]);
 
@@ -286,6 +290,29 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({
                 <p className="text-sm font-black text-amber-700 font-mono">{metrics.pendingCount}</p>
               </div>
             </div>
+            <div
+              onClick={() => setReminderModalOpen(true)}
+              className="bg-slate-50 hover:bg-amber-50/80 border border-slate-200/80 hover:border-amber-300 rounded-xl px-3.5 py-2 flex items-center space-x-3 shrink-0 cursor-pointer transition-colors group"
+              title="Click to send email reminder to Sales and Support roles"
+            >
+              <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              <div>
+                <div className="flex items-center space-x-1">
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400 group-hover:text-amber-800">
+                    Outstanding Balance
+                  </p>
+                  <Mail className="w-3 h-3 text-amber-600" />
+                </div>
+                <p className="text-sm font-black text-amber-900 font-mono">
+                  {formatCurrency(metrics.totalBalanceDue)}
+                  {metrics.outstandingCount > 0 && (
+                    <span className="text-[10px] font-bold text-amber-700 ml-1 font-sans">
+                      ({metrics.outstandingCount} open)
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
             <div className="bg-slate-50 border border-slate-200/80 rounded-xl px-3.5 py-2 flex items-center space-x-3 shrink-0">
               <div>
                 <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Total Invoiced Value</p>
@@ -340,8 +367,8 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({
           </div>
 
           {/* Search & Utility Buttons */}
-          <div className="flex items-center space-x-2">
-            <div className="relative w-full md:w-80">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative w-full sm:w-72 md:w-80">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
@@ -359,19 +386,35 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({
                 </button>
               )}
             </div>
+
+            {/* Email Payment Reminder Button */}
+            <button
+              onClick={() => setReminderModalOpen(true)}
+              className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-slate-950 font-bold rounded-lg text-xs shadow-xs transition-all cursor-pointer shrink-0"
+              title="Send email reminder to Sales and Support roles to follow up payments for orders with outstanding balance"
+            >
+              <Mail className="w-3.5 h-3.5 shrink-0" />
+              <span>Send Payment Reminder</span>
+              {metrics.outstandingCount > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 bg-slate-950 text-amber-400 rounded-full font-mono text-[10px] font-bold">
+                  {metrics.outstandingCount}
+                </span>
+              )}
+            </button>
+
             <button
               onClick={handleExportCsv}
               disabled={filteredOrders.length === 0}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold shadow-2xs transition-all disabled:opacity-50 cursor-pointer"
+              className="flex items-center space-x-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold shadow-2xs transition-all disabled:opacity-50 cursor-pointer shrink-0"
               title="Export visible invoices to CSV"
             >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
               <span>Export CSV</span>
             </button>
             <button
               onClick={loadOrders}
               disabled={loading}
-              className="p-1.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-lg text-xs font-semibold shadow-2xs transition-all cursor-pointer"
+              className="p-1.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-lg text-xs font-semibold shadow-2xs transition-all cursor-pointer shrink-0"
               title="Refresh Invoices"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-amber-600' : ''}`} />
@@ -735,6 +778,17 @@ export const InvoicesList: React.FC<InvoicesListProps> = ({
           onOrderUpdated={loadOrders}
         />
       )}
+
+      {/* Payment Reminder Modal to Sales and Support Staff */}
+      <PaymentReminderModal
+        isOpen={reminderModalOpen}
+        onClose={() => setReminderModalOpen(false)}
+        currentUser={currentUser}
+        onSentSuccess={msg => {
+          showToast(msg);
+          loadOrders();
+        }}
+      />
     </div>
   );
 };

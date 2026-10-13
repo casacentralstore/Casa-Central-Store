@@ -17,8 +17,8 @@ export interface BackupDataset {
 }
 
 export interface BackupResult {
-  spreadsheetId: string;
-  spreadsheetUrl: string;
+  spreadsheetId?: string;
+  spreadsheetUrl?: string;
   title: string;
   timestamp: string;
   counts: {
@@ -32,7 +32,7 @@ export interface BackupResult {
 
 // Format each of the 5 sheets into 2D arrays [headerRow, ...dataRows]
 export function buildSheetsData(data: BackupDataset) {
-  // 1. Orders Tab
+  // 1. Orders Tab (31 Columns - Matches the Attached Master Google Sheet exactly)
   const ordersHeaders = [
     'Order #',
     'Created At',
@@ -65,6 +65,7 @@ export function buildSheetsData(data: BackupDataset) {
     'Quantity',
     'Unit Price ($)',
     'Line Total ($)',
+    'Order Line Number',
   ];
 
   const ordersRows: any[][] = [];
@@ -76,10 +77,11 @@ export function buildSheetsData(data: BackupDataset) {
       ? 'Taxed'
       : 'Non-Taxed';
 
-    items.forEach((item: any) => {
+    items.forEach((item: any, idx: number) => {
       const qty = item ? Number(item.quantity || 1) : 0;
       const unitPrice = item ? Number(item.unit_price || 0) : 0;
       const lineTotal = qty * unitPrice;
+      const lineNumber = item ? (item.line_number ?? (idx + 1)) : 1;
 
       ordersRows.push([
         order.order_number || '',
@@ -113,11 +115,12 @@ export function buildSheetsData(data: BackupDataset) {
         item ? qty : '',
         item ? unitPrice.toFixed(2) : '',
         item ? lineTotal.toFixed(2) : '',
+        lineNumber,
       ]);
     });
   });
 
-  // 2. Logistics Tab
+  // 2. Logistics Tab (16 Columns)
   const logisticsHeaders = [
     'Order #',
     'SO Number',
@@ -156,7 +159,7 @@ export function buildSheetsData(data: BackupDataset) {
     log.transaction_date ? formatDate(log.transaction_date) : '',
   ]);
 
-  // 3. Invoices Tab
+  // 3. Invoices Tab (20 Columns)
   const invoicesHeaders = [
     'Invoice #',
     'Order #',
@@ -203,7 +206,7 @@ export function buildSheetsData(data: BackupDataset) {
     inv.status || '',
   ]);
 
-  // 4. Customers Tab
+  // 4. Customers Tab (14 Columns)
   const customersHeaders = [
     'Customer #',
     'First Name',
@@ -238,7 +241,7 @@ export function buildSheetsData(data: BackupDataset) {
     c.created_at ? formatDate(c.created_at) : '',
   ]);
 
-  // 5. Inventory Tab
+  // 5. Inventory Tab (16 Columns)
   const inventoryHeaders = [
     'SKU',
     'Brand',
@@ -293,269 +296,136 @@ export function buildSheetsData(data: BackupDataset) {
 }
 
 /**
- * Creates a brand new Google Sheet in the user's Google Drive with all 5 tabs
- * populated with current database records.
+ * Converts a 2D array into clean TSV (Tab Separated Values) for 1-click
+ * copying and direct pasting into any Google Sheet (via Ctrl+V / Cmd+V).
  */
-export async function createGoogleSheetBackup(
-  accessToken: string,
-  dataset: BackupDataset,
-  onProgress?: (message: string) => void
-): Promise<BackupResult> {
-  const timestamp = new Date().toISOString();
-  const dateFormatted = new Date().toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  const sheetTitle = `Casa Central Store - Business Backup (${dateFormatted})`;
+export function buildTsv(rows: any[][]): string {
+  return rows
+    .map(row =>
+      row
+        .map(cell => {
+          const str = cell === null || cell === undefined ? '' : String(cell);
+          // If the cell contains tabs or newlines, wrap in quotes
+          if (str.includes('\t') || str.includes('\n') || str.includes('"')) {
+            return `"${str.replace(/"/g, '""')}"`;
+          }
+          return str;
+        })
+        .join('\t')
+    )
+    .join('\n');
+}
 
-  onProgress?.('Preparing tabular data across all 5 modules...');
-  const sheetsData = buildSheetsData(dataset);
+/**
+ * Converts a 2D array into RFC 4180 compliant CSV.
+ */
+export function buildCsv(rows: any[][]): string {
+  return rows
+    .map(row =>
+      row
+        .map(cell => {
+          const str = cell === null || cell === undefined ? '' : String(cell);
+          if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+            return `"${str.replace(/"/g, '""')}"`;
+          }
+          return str;
+        })
+        .join(',')
+    )
+    .join('\n');
+}
 
-  // 1. Create Spreadsheet with 5 named sheets
-  onProgress?.('Creating new Google Spreadsheet file in Google Drive...');
-  const createPayload = {
-    properties: {
-      title: sheetTitle,
-    },
-    sheets: [
-      { properties: { sheetId: 101, title: 'Orders', gridProperties: { frozenRowCount: 1 } } },
-      { properties: { sheetId: 102, title: 'Logistics', gridProperties: { frozenRowCount: 1 } } },
-      { properties: { sheetId: 103, title: 'Invoices', gridProperties: { frozenRowCount: 1 } } },
-      { properties: { sheetId: 104, title: 'Customers', gridProperties: { frozenRowCount: 1 } } },
-      { properties: { sheetId: 105, title: 'Inventory', gridProperties: { frozenRowCount: 1 } } },
-    ],
-  };
+/**
+ * Triggers a browser file download.
+ */
+export function downloadFile(content: string, filename: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
-  const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+/**
+ * Logs data directly into a Google Sheet via a Google Apps Script Webhook or endpoint.
+ * Requires ZERO Google Cloud credentials, OAuth tokens, or Firebase Auth.
+ */
+export async function syncDataToGoogleSheetWebhook(
+  webhookUrl: string,
+  payload: {
+    action?: 'sync' | 'append';
+    tab?: string;
+    rows?: any[][];
+    dataset?: BackupDataset;
+  }
+): Promise<{ success: boolean; message: string; rowsLogged?: number }> {
+  const cleanUrl = webhookUrl.trim();
+  if (!cleanUrl) {
+    throw new Error('Google Sheet Webhook URL is required.');
+  }
+
+  // Allow either direct Apps Script or local proxy
+  const res = await fetch(cleanUrl, {
     method: 'POST',
+    mode: 'no-cors', // Standard Google Apps Script Web App redirects
     headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
+      'Content-Type': 'text/plain;charset=utf-8',
     },
-    body: JSON.stringify(createPayload),
+    body: JSON.stringify(payload),
   });
-
-  if (!createRes.ok) {
-    const err = await createRes.json();
-    throw new Error(err.error?.message || 'Failed to create Google Spreadsheet file');
-  }
-
-  const createdFile = await createRes.json();
-  const spreadsheetId = createdFile.spreadsheetId;
-
-  // 2. Populate values across all 5 sheets in batch
-  onProgress?.('Populating Orders, Logistics, Invoices, Customers, and Inventory...');
-  const updateRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        valueInputOption: 'USER_ENTERED',
-        data: [
-          { range: 'Orders!A1', values: sheetsData.orders },
-          { range: 'Logistics!A1', values: sheetsData.logistics },
-          { range: 'Invoices!A1', values: sheetsData.invoices },
-          { range: 'Customers!A1', values: sheetsData.customers },
-          { range: 'Inventory!A1', values: sheetsData.inventory },
-        ],
-      }),
-    }
-  );
-
-  if (!updateRes.ok) {
-    const err = await updateRes.json();
-    throw new Error(err.error?.message || 'Failed to populate spreadsheet cells');
-  }
-
-  // 3. Apply professional Casa Central brand formatting (dark header, white bold text)
-  onProgress?.('Applying professional styling and freeze panes...');
-  try {
-    const sheetIds = [101, 102, 103, 104, 105];
-    const formatRequests: any[] = [];
-
-    sheetIds.forEach(id => {
-      // Format Row 1 (Header) with dark slate background and bold white text
-      formatRequests.push({
-        repeatCell: {
-          range: {
-            sheetId: id,
-            startRowIndex: 0,
-            endRowIndex: 1,
-          },
-          cell: {
-            userEnteredFormat: {
-              backgroundColor: { red: 0.09, green: 0.13, blue: 0.20 }, // #172133 Slate
-              textFormat: {
-                foregroundColor: { red: 1.0, green: 1.0, blue: 1.0 },
-                bold: true,
-                fontSize: 10,
-              },
-              horizontalAlignment: 'LEFT',
-              verticalAlignment: 'MIDDLE',
-            },
-          },
-          fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
-        },
-      });
-      // Auto resize columns
-      formatRequests.push({
-        autoResizeDimensions: {
-          dimensions: {
-            sheetId: id,
-            dimension: 'COLUMNS',
-            startIndex: 0,
-            endIndex: 30,
-          },
-        },
-      });
-    });
-
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ requests: formatRequests }),
-    });
-  } catch (formatErr) {
-    // Non-fatal, styling enhancement only
-    console.warn('Formatting batch update non-fatal error:', formatErr);
-  }
-
-  onProgress?.('Backup complete!');
 
   return {
-    spreadsheetId,
-    spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
-    title: sheetTitle,
-    timestamp,
-    counts: {
-      orders: sheetsData.orders.length - 1,
-      logistics: sheetsData.logistics.length - 1,
-      invoices: sheetsData.invoices.length - 1,
-      customers: sheetsData.customers.length - 1,
-      inventory: sheetsData.inventory.length - 1,
-    },
+    success: true,
+    message: 'Data successfully dispatched to Google Sheet.',
+    rowsLogged: payload.rows ? payload.rows.length - 1 : undefined,
   };
 }
 
 /**
- * Updates an existing Google Spreadsheet with the latest data across all 5 tabs.
- * Note: Caller must confirm with the user before invoking this operation.
+ * Standard Apps Script template that users can paste into their Google Sheet
+ * (Extensions > Apps Script) to enable automatic, zero-auth logging.
  */
-export async function updateGoogleSheetBackup(
-  accessToken: string,
-  spreadsheetId: string,
-  dataset: BackupDataset,
-  onProgress?: (message: string) => void
-): Promise<BackupResult> {
-  onProgress?.('Verifying existing spreadsheet...');
-  // 1. Fetch spreadsheet info
-  const metaRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=properties.title,sheets.properties`,
-    {
-      headers: { Authorization: `Bearer ${accessToken}` },
+export const GOOGLE_APPS_SCRIPT_TEMPLATE = `// -------------------------------------------------------------
+// Casa Central Store - Google Sheet Logger Script
+// Paste into: Extensions > Apps Script in your Google Sheet
+// Then click: Deploy > New Deployment > Web app
+// - Execute as: Me
+// - Who has access: Anyone
+// -------------------------------------------------------------
+
+function doPost(e) {
+  try {
+    var payload = JSON.parse(e.postData.contents);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tabName = payload.tab || 'Orders';
+    var sheet = ss.getSheetByName(tabName) || ss.insertSheet(tabName);
+    
+    if (payload.action === 'sync' && payload.rows && payload.rows.length > 0) {
+      sheet.clearContents();
+      sheet.getRange(1, 1, payload.rows.length, payload.rows[0].length).setValues(payload.rows);
+      sheet.getRange(1, 1, 1, payload.rows[0].length).setFontWeight("bold").setBackground("#172133").setFontColor("#FFFFFF");
+      sheet.setFrozenRows(1);
+    } else if (payload.rows && payload.rows.length > 0) {
+      // Append rows
+      for (var i = 0; i < payload.rows.length; i++) {
+        sheet.appendRow(payload.rows[i]);
+      }
     }
-  );
-
-  if (!metaRes.ok) {
-    const err = await metaRes.json();
-    throw new Error(err.error?.message || 'Failed to locate existing Google Spreadsheet');
+    
+    return ContentService.createTextOutput(JSON.stringify({ success: true, message: "Logged to Google Sheet successfully" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
   }
-
-  const meta = await metaRes.json();
-  const existingSheetTitles: string[] = (meta.sheets || []).map((s: any) => s.properties.title);
-  const requiredTitles = ['Orders', 'Logistics', 'Invoices', 'Customers', 'Inventory'];
-  const missingTitles = requiredTitles.filter(t => !existingSheetTitles.includes(t));
-
-  // Add missing sheets if needed
-  if (missingTitles.length > 0) {
-    onProgress?.(`Adding missing tabs (${missingTitles.join(', ')})...`);
-    const addSheetRequests = missingTitles.map(title => ({
-      addSheet: {
-        properties: {
-          title,
-          gridProperties: { frozenRowCount: 1 },
-        },
-      },
-    }));
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ requests: addSheetRequests }),
-    });
-  }
-
-  // 2. Clear old data ranges
-  onProgress?.('Clearing previous data rows in sheets...');
-  await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ranges: ['Orders!A1:ZZ', 'Logistics!A1:ZZ', 'Invoices!A1:ZZ', 'Customers!A1:ZZ', 'Inventory!A1:ZZ'],
-      }),
-    }
-  );
-
-  // 3. Write fresh data
-  onProgress?.('Syncing updated data into all 5 sheets...');
-  const sheetsData = buildSheetsData(dataset);
-
-  const updateRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        valueInputOption: 'USER_ENTERED',
-        data: [
-          { range: 'Orders!A1', values: sheetsData.orders },
-          { range: 'Logistics!A1', values: sheetsData.logistics },
-          { range: 'Invoices!A1', values: sheetsData.invoices },
-          { range: 'Customers!A1', values: sheetsData.customers },
-          { range: 'Inventory!A1', values: sheetsData.inventory },
-        ],
-      }),
-    }
-  );
-
-  if (!updateRes.ok) {
-    const err = await updateRes.json();
-    throw new Error(err.error?.message || 'Failed to update spreadsheet data');
-  }
-
-  onProgress?.('Update complete!');
-
-  return {
-    spreadsheetId,
-    spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
-    title: meta.properties?.title || 'Casa Central Store Backup',
-    timestamp: new Date().toISOString(),
-    counts: {
-      orders: sheetsData.orders.length - 1,
-      logistics: sheetsData.logistics.length - 1,
-      invoices: sheetsData.invoices.length - 1,
-      customers: sheetsData.customers.length - 1,
-      inventory: sheetsData.inventory.length - 1,
-    },
-  };
 }
+
+function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({ status: "online", service: "Casa Central Store Logger" }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+`;
