@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Order, TaxSettings } from '../../types/index.ts';
 import { formatCurrency, formatDate, generateOrderPdf } from '../../utils/formatters.ts';
-import { Printer, Download, X } from 'lucide-react';
+import { Printer, Download, X, Mail, Copy, Check, Globe, ChevronDown, ChevronUp } from 'lucide-react';
+import { copyEmailToClipboard, buildMailtoUrl, buildGmailComposeUrl } from '../../utils/emailHelper.ts';
 
 interface DocumentViewerModalProps {
   order: Order | null;
@@ -17,8 +18,79 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   onClose,
 }) => {
   const [docType, setDocType] = useState<'Invoice' | 'Receipt' | 'Packing Slip'>(initialType);
+  const [showEmailPanel, setShowEmailPanel] = useState(false);
+  const [copiedInvoice, setCopiedInvoice] = useState(false);
 
   if (!order) return null;
+
+  const customerEmail = order.customer_email || '';
+  const customerName = order.customer_name || 'Valued Customer';
+  const emailSubject = `${settings.company_name || 'Casa Central Store'} - ${docType} #${order.order_number}`;
+
+  const buildInvoicePlainText = () => {
+    const itemsList = (order.items || []).map((it, i) => 
+      `${i + 1}. [${it.sku}] ${it.description} x${it.quantity} @ ${formatCurrency(it.unit_price)} = ${formatCurrency(it.line_total)}`
+    ).join('\n');
+
+    return `Dear ${customerName},
+
+Thank you for your business with ${settings.company_name || 'Casa Central Store'}!
+
+Here is your ${docType} summary for Order #${order.order_number}:
+Date: ${formatDate(order.transaction_date)}
+Status: ${order.status} | Fulfillment: ${order.fulfillment_status || 'Pick Up'}
+
+ITEMS:
+==================================================
+${itemsList || 'No line items listed'}
+==================================================
+
+Subtotal: ${formatCurrency(order.subtotal)}
+Sales Tax: ${formatCurrency(order.sales_tax)}
+${order.shipping_amount ? `Shipping Fee: ${formatCurrency(order.shipping_amount)}\n` : ''}${order.credit_card_charge ? `CC Surcharge: ${formatCurrency(order.credit_card_charge)}\n` : ''}Invoice Total: ${formatCurrency(order.invoice_total)}
+Amount Paid: ${formatCurrency(order.amount_paid)}
+Balance Due: ${formatCurrency(order.balance_due)}
+
+Store Address:
+${settings.company_address || '1420 Bergenline Avenue'}
+${settings.company_city_state_zip || 'Union City, NJ 07087'}
+Phone: ${settings.company_phone || '(201) 867-4200'}
+Email: ${settings.company_email || 'info@casacentralstore.com'}`;
+  };
+
+  const handleCopyInvoiceEmail = async () => {
+    const text = buildInvoicePlainText();
+    const success = await copyEmailToClipboard({
+      to: customerEmail,
+      toName: customerName,
+      subject: emailSubject,
+      bodyText: text,
+    });
+    if (success) {
+      setCopiedInvoice(true);
+      setTimeout(() => setCopiedInvoice(false), 2500);
+    }
+  };
+
+  const handleOpenInvoiceMailApp = () => {
+    const text = buildInvoicePlainText();
+    const url = buildMailtoUrl({
+      to: customerEmail,
+      subject: emailSubject,
+      body: text,
+    });
+    window.open(url, '_blank');
+  };
+
+  const handleOpenInvoiceGmailWeb = () => {
+    const text = buildInvoicePlainText();
+    const url = buildGmailComposeUrl({
+      to: customerEmail,
+      subject: emailSubject,
+      body: text,
+    });
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
 
   const handlePrint = () => {
     window.print();
@@ -69,6 +141,23 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
               Download PDF
             </button>
             <button
+              onClick={() => setShowEmailPanel(!showEmailPanel)}
+              className={`inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer ${
+                showEmailPanel
+                  ? 'bg-amber-500 text-slate-950 font-bold'
+                  : 'text-slate-700 bg-white border border-slate-300 hover:bg-slate-50'
+              }`}
+              title="Copy formatted email or open directly in Outlook / Gmail"
+            >
+              <Mail className="w-4 h-4 mr-1.5 text-amber-500" />
+              <span>Email / Copy</span>
+              {showEmailPanel ? (
+                <ChevronUp className="w-3.5 h-3.5 ml-1" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 ml-1" />
+              )}
+            </button>
+            <button
               onClick={onClose}
               className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-lg transition-colors ml-2 cursor-pointer"
             >
@@ -76,6 +165,60 @@ export const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Email & Manual Dispatch Drawer (Print: hidden) */}
+        {showEmailPanel && (
+          <div className="bg-amber-500/10 border-b border-amber-300 p-4 print:hidden text-xs text-slate-800 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h4 className="font-bold text-slate-900 flex items-center space-x-1.5">
+                  <Mail className="w-4 h-4 text-amber-600" />
+                  <span>Manual Email &amp; Clipboard Dispatch</span>
+                </h4>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  Recipient: <strong className="text-slate-900">{customerName}</strong> &bull;{' '}
+                  <span className="font-mono text-slate-700">{customerEmail || 'No customer email on file'}</span>
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyInvoiceEmail}
+                  className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold rounded-lg text-xs flex items-center space-x-1.5 cursor-pointer shadow-2xs transition-colors"
+                  title="Copy full formatted invoice summary to clipboard"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>{copiedInvoice ? 'Copied to Clipboard!' : 'Copy Formatted Text'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenInvoiceMailApp}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold rounded-lg text-xs flex items-center space-x-1.5 cursor-pointer shadow-2xs transition-colors"
+                  title="Launch default email app (Outlook, Apple Mail, etc.)"
+                >
+                  <Mail className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Open in Mail App</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenInvoiceGmailWeb}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold rounded-lg text-xs flex items-center space-x-1.5 cursor-pointer shadow-2xs transition-colors"
+                  title="Open pre-filled draft in Gmail web composer"
+                >
+                  <Globe className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Open in Gmail</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-3 bg-white border border-amber-200 rounded-lg max-h-36 overflow-y-auto font-mono text-[11px] whitespace-pre-wrap text-slate-700 leading-relaxed shadow-inner">
+              {buildInvoicePlainText()}
+            </div>
+          </div>
+        )}
 
         {/* Printable Document Preview Area */}
         <div className="p-8 overflow-y-auto print:p-6 print:overflow-visible">

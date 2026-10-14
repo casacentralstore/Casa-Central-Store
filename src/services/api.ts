@@ -393,7 +393,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  // Email / SMTP Settings
+  // Email / Delivery Settings
   getEmailConfig: () =>
     request<EmailConfigData>('/api/settings/email-config'),
 
@@ -401,6 +401,11 @@ export const api = {
     request<{ success: boolean; message: string }>('/api/settings/email-config', {
       method: 'PUT',
       body: JSON.stringify(data),
+    }),
+
+  verifyEmailConnection: () =>
+    request<{ success: boolean; message: string; isTest: boolean; mode: string; needsAuthorization?: boolean }>('/api/settings/verify-email-connection', {
+      method: 'POST',
     }),
 
   sendTestEmail: (email?: string) =>

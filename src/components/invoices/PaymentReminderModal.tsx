@@ -24,7 +24,10 @@ import {
   AlertTriangle,
   History,
   ExternalLink,
+  Copy,
+  Globe,
 } from 'lucide-react';
+import { copyEmailToClipboard, buildMailtoUrl, buildGmailComposeUrl } from '../../utils/emailHelper.ts';
 
 interface PaymentReminderModalProps {
   isOpen: boolean;
@@ -439,6 +442,56 @@ export const PaymentReminderModal: React.FC<PaymentReminderModalProps> = ({
     } finally {
       setSending(false);
     }
+  };
+
+  const [copySuccessToast, setCopySuccessToast] = useState<string | null>(null);
+
+  const handleCopyEmailContent = async () => {
+    const ordersText = selectedOrders.map(o => 
+      `- Order #${o.order_number}: ${o.customer_name || 'Customer'} | Invoice Total: ${formatCurrency(o.invoice_total)} | Paid: ${formatCurrency(o.amount_paid)} | Balance Due: ${formatCurrency(o.balance_due)}`
+    ).join('\n');
+
+    const fullPlainText = `${renderedMessage}\n\n==================================================\nOUTSTANDING ACCOUNTS SUMMARY\nTotal Balance Due: ${formatCurrency(selectedSummary.totalBalance)} across ${selectedOrders.length} order(s)\nTarget Follow-up Date: ${formattedDueDate}\n==================================================\n\n${ordersText}\n\nCasa Central Store &bull; Invoices & Accounts Receivable\n405 32nd St, Union City, NJ 07087 &bull; (201) 867-4200`;
+
+    const success = await copyEmailToClipboard({
+      to: previewRecipient.email,
+      toName: previewRecipient.name,
+      subject: renderedSubject,
+      bodyText: fullPlainText,
+    });
+
+    if (success) {
+      setCopySuccessToast('Email subject and formatted body copied to clipboard! Paste directly into Outlook or your email app (Ctrl+V / Cmd+V).');
+      setTimeout(() => setCopySuccessToast(null), 4500);
+    }
+  };
+
+  const handleOpenMailApp = () => {
+    const ordersText = selectedOrders.map(o => 
+      `- Order #${o.order_number}: ${o.customer_name || 'Customer'} | Due: ${formatCurrency(o.balance_due)}`
+    ).join('\n');
+    const fullBody = `${renderedMessage}\n\nOUTSTANDING ACCOUNTS (Target: ${formattedDueDate}):\n${ordersText}\n\nTotal Due: ${formatCurrency(selectedSummary.totalBalance)}`;
+    
+    const url = buildMailtoUrl({
+      to: previewRecipient.email,
+      subject: renderedSubject,
+      body: fullBody,
+    });
+    window.open(url, '_blank');
+  };
+
+  const handleOpenGmailWeb = () => {
+    const ordersText = selectedOrders.map(o => 
+      `- Order #${o.order_number}: ${o.customer_name || 'Customer'} | Due: ${formatCurrency(o.balance_due)}`
+    ).join('\n');
+    const fullBody = `${renderedMessage}\n\nOUTSTANDING ACCOUNTS (Target: ${formattedDueDate}):\n${ordersText}\n\nTotal Due: ${formatCurrency(selectedSummary.totalBalance)}`;
+    
+    const url = buildGmailComposeUrl({
+      to: previewRecipient.email,
+      subject: renderedSubject,
+      body: fullBody,
+    });
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   if (!isOpen) return null;
@@ -1172,6 +1225,62 @@ export const PaymentReminderModal: React.FC<PaymentReminderModalProps> = ({
                         </div>
                       </div>
 
+                      {/* Manual Dispatch & Clipboard Action Toolbar */}
+                      <div className="bg-amber-500/10 border border-amber-300 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2.5">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center font-bold">
+                            <Copy className="w-3.5 h-3.5" />
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-slate-900">
+                              Manual Dispatch &amp; Copy Tools
+                            </div>
+                            <div className="text-[10px] text-slate-500">
+                              Copy email draft to clipboard or open directly in Outlook / Gmail
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleCopyEmailContent}
+                            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold rounded-lg text-xs flex items-center space-x-1.5 cursor-pointer shadow-2xs transition-colors"
+                            title="Copy full email with subject and breakdown to clipboard"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Copy Formatted Email</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleOpenMailApp}
+                            className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold rounded-lg text-xs flex items-center space-x-1.5 cursor-pointer shadow-2xs transition-colors"
+                            title="Launch default email app (Outlook, Apple Mail, etc.)"
+                          >
+                            <Mail className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Open Mail App</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={handleOpenGmailWeb}
+                            className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold rounded-lg text-xs flex items-center space-x-1.5 cursor-pointer shadow-2xs transition-colors"
+                            title="Open pre-filled draft in Gmail web composer"
+                          >
+                            <Globe className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Open in Gmail</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {copySuccessToast && (
+                        <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-xl text-xs flex items-center space-x-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span className="font-medium">{copySuccessToast}</span>
+                        </div>
+                      )}
+
                       {/* Rendered Email Visual Mockup */}
                       <div className="bg-slate-900 p-4 sm:p-8 rounded-2xl flex justify-center shadow-inner overflow-x-auto">
                         <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-[640px] overflow-hidden text-slate-800">
@@ -1482,6 +1591,17 @@ export const PaymentReminderModal: React.FC<PaymentReminderModalProps> = ({
                     <span>Edit Template</span>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={handleCopyEmailContent}
+                  disabled={selectedOrders.length === 0}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+                  title="Copy formatted email to clipboard to paste into your mail client"
+                >
+                  <Copy className="w-3.5 h-3.5 text-slate-600" />
+                  <span className="hidden sm:inline">Copy Email</span>
+                </button>
 
                 <button
                   type="button"

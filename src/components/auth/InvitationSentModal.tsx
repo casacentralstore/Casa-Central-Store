@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { CheckCircle2, Copy, Check, ExternalLink, Mail, X, Shield, Clock } from 'lucide-react';
+import { CheckCircle2, Copy, Check, ExternalLink, Mail, X, Shield, Clock, Globe } from 'lucide-react';
 import { User, UserInvitation, SentEmail, UserRole } from '../../types/index.ts';
+import { copyEmailToClipboard, buildMailtoUrl, buildGmailComposeUrl } from '../../utils/emailHelper.ts';
 
 interface InvitationSentModalProps {
   user: User;
@@ -18,6 +19,7 @@ export function InvitationSentModal({
   onOpenSetupNow,
 }: InvitationSentModalProps) {
   const [copied, setCopied] = useState(false);
+  const [copiedEmail, setCopiedEmail] = useState(false);
   const [activeTab, setActiveTab] = useState<'link' | 'email'>('link');
 
   // Compute full URL
@@ -26,10 +28,57 @@ export function InvitationSentModal({
     ? invitation.setup_url
     : `${origin}/?invite=${invitation.token}`;
 
+  const invitationSubject = email?.subject || `Invitation to join Casa Central Store POS as ${user.role}`;
+
+  const invitationPlainText = `Welcome to the Team, ${user.name}!
+
+An administrator has added you to Casa Central Store with the role of: ${user.role === 'Admin' ? 'Administrator' : user.role}.
+
+To activate your account and set up your secure password, please click the link below:
+${fullUrl}
+
+• This invitation link is personalized and expires in 7 days (${new Date(invitation.expires_at).toLocaleDateString()}).
+• If you have questions, please reply to this email or speak with your store manager.
+
+Best regards,
+Casa Central Store Operations Team
+405 32nd St, Union City, NJ 07087`;
+
   const handleCopy = () => {
     navigator.clipboard.writeText(fullUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
+  };
+
+  const handleCopyEmail = async () => {
+    const success = await copyEmailToClipboard({
+      to: user.email,
+      toName: user.name,
+      subject: invitationSubject,
+      bodyText: invitationPlainText,
+    });
+    if (success) {
+      setCopiedEmail(true);
+      setTimeout(() => setCopiedEmail(false), 2500);
+    }
+  };
+
+  const handleOpenMailClient = () => {
+    const url = buildMailtoUrl({
+      to: user.email,
+      subject: invitationSubject,
+      body: invitationPlainText,
+    });
+    window.open(url, '_blank');
+  };
+
+  const handleOpenGmailComposer = () => {
+    const url = buildGmailComposeUrl({
+      to: user.email,
+      subject: invitationSubject,
+      body: invitationPlainText,
+    });
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const getRoleBadgeStyle = (role: UserRole) => {
@@ -185,6 +234,50 @@ export function InvitationSentModal({
                 </div>
               </div>
 
+              <div className="flex flex-wrap items-center gap-2 pt-1 pb-1">
+                <button
+                  type="button"
+                  onClick={handleCopyEmail}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors cursor-pointer ${
+                    copiedEmail
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-slate-900 hover:bg-slate-800 text-amber-400 shadow-2xs'
+                  }`}
+                >
+                  {copiedEmail ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-300" />
+                      <span>Copied Full Email!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy Formatted Email</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenMailClient}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors cursor-pointer shadow-2xs"
+                  title="Open in Outlook / Apple Mail"
+                >
+                  <Mail className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Open in Mail App</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenGmailComposer}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors cursor-pointer shadow-2xs"
+                  title="Open pre-filled in Gmail"
+                >
+                  <Globe className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Open in Gmail</span>
+                </button>
+              </div>
+
               <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-950 p-3">
                 <div className="bg-white rounded-lg p-4 text-slate-900 text-xs shadow-inner">
                   <div className="flex items-center space-x-2 border-b border-slate-100 pb-2 mb-3">
@@ -220,10 +313,20 @@ export function InvitationSentModal({
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={handleCopyEmail}
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center space-x-1.5"
+            title="Copy invitation message to clipboard to paste into Slack, Teams, or your email app"
+          >
+            <Copy className="w-3.5 h-3.5 text-slate-500" />
+            <span>{copiedEmail ? 'Copied to Clipboard!' : 'Copy Invitation Message'}</span>
+          </button>
+
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
           >
             Done
           </button>

@@ -263,6 +263,8 @@ app.get('/api/settings/email-config', (req, res) => {
     res.json({
       success: true,
       data: {
+        mode: config.mode,
+        appsScriptUrl: config.appsScriptUrl,
         host: config.host,
         port: config.port,
         secure: config.secure,
@@ -290,10 +292,20 @@ app.put('/api/settings/email-config', (req, res) => {
   }
 });
 
+app.post('/api/settings/verify-email-connection', async (req, res) => {
+  try {
+    const result = await verifyEmailConnection();
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 app.post('/api/settings/test-email', async (req, res) => {
   try {
     const currentUser = (req as any).currentUser;
     const targetEmail = req.body.email || currentUser?.email || 'p13.msappliances@gmail.com';
+    const config = getEmailConfig();
     const result = await sendEmail({
       to: targetEmail,
       toName: currentUser?.name || 'Casa Central Staff',
@@ -303,20 +315,22 @@ app.post('/api/settings/test-email', async (req, res) => {
       html: `
         <div style="font-family: sans-serif; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
           <h2 style="color: #0f172a; margin-top: 0;">Casa Central Store &bull; Email System Active</h2>
-          <p style="color: #334155; font-size: 14px; line-height: 1.6;">This test email confirms that your outgoing email engine (via nodemailer) is fully operational.</p>
+          <p style="color: #334155; font-size: 14px; line-height: 1.6;">This test email confirms that your outgoing email engine (${config.mode === 'apps_script' ? 'via Google Apps Script Webhook' : config.mode === 'manual' ? 'via Manual Dispatch' : 'via nodemailer'}) is operational.</p>
           <div style="background-color: #f8fafc; padding: 14px; border-radius: 8px; font-size: 13px; line-height: 1.6; border: 1px solid #e2e8f0;">
             <div><strong>Logged-in Sender:</strong> ${currentUser?.name} (${currentUser?.email})</div>
+            <div><strong>Delivery Mode:</strong> ${config.mode}</div>
             <div><strong>Recipient:</strong> ${targetEmail}</div>
             <div><strong>Timestamp:</strong> ${new Date().toLocaleString()}</div>
           </div>
         </div>
       `,
-      text: `Casa Central Store Email Test\nSender: ${currentUser?.name} (${currentUser?.email})\nRecipient: ${targetEmail}`,
+      text: `Casa Central Store Email Test\nSender: ${currentUser?.name} (${currentUser?.email})\nRecipient: ${targetEmail}\nMode: ${config.mode}`,
     });
 
     res.json({ success: true, data: result });
   } catch (err: any) {
-    res.status(400).json({ success: false, error: err.message });
+    const isAuth = String(err.message || '').includes('Authorization Required');
+    res.status(400).json({ success: false, error: err.message, needsAuthorization: isAuth });
   }
 });
 

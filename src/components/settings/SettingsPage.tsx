@@ -24,7 +24,21 @@ import {
   KeyRound,
   Cloud,
   ExternalLink,
+  Copy,
+  Check,
+  Code,
+  Sparkles,
+  FileCode,
+  CheckCircle2,
+  ShieldAlert,
+  Globe,
 } from 'lucide-react';
+import {
+  APPS_SCRIPT_SAMPLE_CODE,
+  copyEmailToClipboard,
+  buildMailtoUrl,
+  buildGmailComposeUrl,
+} from '../../utils/emailHelper.ts';
 
 
 interface SettingsPageProps {
@@ -58,8 +72,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [configSuccess, setConfigSuccess] = useState('');
   const [configError, setConfigError] = useState('');
 
-  // Email / SMTP Dispatch State
-  const [smtpConfig, setSmtpConfig] = useState({
+  // Email / Delivery Dispatch State (Google Apps Script, Manual Clipboard, or SMTP)
+  const [emailConfig, setEmailConfig] = useState<{
+    mode: 'apps_script' | 'manual' | 'smtp';
+    appsScriptUrl: string;
+    host: string;
+    port: number;
+    secure: boolean;
+    user: string;
+    pass: string;
+    defaultFrom: string;
+    isConfigured: boolean;
+    hasPassword: boolean;
+  }>({
+    mode: 'apps_script',
+    appsScriptUrl: '',
     host: '',
     port: 587,
     secure: false,
@@ -69,18 +96,25 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     isConfigured: false,
     hasPassword: false,
   });
-  const [savingSmtp, setSavingSmtp] = useState(false);
-  const [smtpSuccess, setSmtpSuccess] = useState('');
-  const [smtpError, setSmtpError] = useState('');
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [emailSuccess, setEmailSuccess] = useState('');
+  const [emailError, setEmailError] = useState('');
   const [testEmailAddress, setTestEmailAddress] = useState(currentUser.email || '');
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<any>(null);
+  const [verifyingEmail, setVerifyingEmail] = useState(false);
+  const [showScriptModal, setShowScriptModal] = useState(false);
+  const [scriptCopied, setScriptCopied] = useState(false);
+  const [manualTestDraft, setManualTestDraft] = useState<{ to: string; subject: string; body: string } | null>(null);
+  const [manualTestCopied, setManualTestCopied] = useState(false);
 
   useEffect(() => {
     const fetchEmailConfig = async () => {
       try {
         const cfg = await api.getEmailConfig();
-        setSmtpConfig({
+        setEmailConfig({
+          mode: cfg.mode || 'apps_script',
+          appsScriptUrl: cfg.appsScriptUrl || '',
           host: cfg.host || '',
           port: cfg.port || 587,
           secure: Boolean(cfg.secure),
@@ -192,37 +226,76 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
-  const handleSaveSmtp = async (e: React.FormEvent) => {
+  const handleSaveEmailConfig = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSavingSmtp(true);
-    setSmtpSuccess('');
-    setSmtpError('');
+    setSavingEmail(true);
+    setEmailSuccess('');
+    setEmailError('');
     try {
-      await api.updateEmailConfig(smtpConfig);
-      setSmtpSuccess('Email delivery settings saved successfully!');
-      setTimeout(() => setSmtpSuccess(''), 4000);
+      await api.updateEmailConfig(emailConfig);
+      setEmailSuccess('Email delivery settings saved successfully!');
+      setTimeout(() => setEmailSuccess(''), 4000);
     } catch (err: any) {
-      setSmtpError(err.message || 'Failed to update email settings');
+      setEmailError(err.message || 'Failed to update email settings');
     } finally {
-      setSavingSmtp(false);
+      setSavingEmail(false);
+    }
+  };
+
+  const handleVerifyEmailConnection = async () => {
+    setVerifyingEmail(true);
+    setEmailSuccess('');
+    setEmailError('');
+    try {
+      // First save current form state so backend tests active configuration
+      await api.updateEmailConfig(emailConfig);
+      const res = await api.verifyEmailConnection();
+      if (res.success) {
+        setEmailSuccess(res.message);
+      } else {
+        setEmailError(res.message);
+      }
+    } catch (err: any) {
+      setEmailError(err.message || 'Verification connection failed');
+    } finally {
+      setVerifyingEmail(false);
     }
   };
 
   const handleSendTestEmail = async () => {
     if (!testEmailAddress.trim()) {
-      setSmtpError('Please enter a destination email address for the test.');
+      setEmailError('Please enter a destination email address for the test.');
       return;
     }
     setSendingTestEmail(true);
-    setSmtpError('');
+    setEmailError('');
     setTestEmailResult(null);
+    setManualTestDraft(null);
     try {
-      const res = await api.sendTestEmail(testEmailAddress.trim());
-      setTestEmailResult(res.data);
-      setSmtpSuccess(`Test email dispatched successfully to ${testEmailAddress}!`);
-      setTimeout(() => setSmtpSuccess(''), 5000);
+      // Auto-save settings first
+      await api.updateEmailConfig(emailConfig);
+
+      if (emailConfig.mode === 'manual') {
+        const fullSubject = 'Casa Central Store - Email Dispatch Verification';
+        const fullBody = `Casa Central Store Email Test\nSender: ${currentUser.name} (${currentUser.email})\nRecipient: ${testEmailAddress.trim()}\nMode: Manual Clipboard Dispatch\nTimestamp: ${new Date().toLocaleString()}\n\nThis confirms that manual email dispatch is ready. You can copy this message to your clipboard or launch it in your email client below.`;
+        setManualTestDraft({
+          to: testEmailAddress.trim(),
+          subject: fullSubject,
+          body: fullBody,
+        });
+        setEmailSuccess(`Manual Test Email draft prepared for ${testEmailAddress.trim()}! Copy or open it below.`);
+        setTimeout(() => setEmailSuccess(''), 6000);
+      } else {
+        const res = await api.sendTestEmail(testEmailAddress.trim());
+        setTestEmailResult(res.data);
+        const modeLabel = res.data?.mode === 'apps_script' 
+          ? 'Google Apps Script Webhook' 
+          : 'SMTP Server';
+        setEmailSuccess(`Test email processed via ${modeLabel} for ${testEmailAddress}!`);
+        setTimeout(() => setEmailSuccess(''), 6000);
+      }
     } catch (err: any) {
-      setSmtpError(err.message || 'Failed to dispatch test email');
+      setEmailError(err.message || 'Failed to dispatch test email');
     } finally {
       setSendingTestEmail(false);
     }
@@ -521,41 +594,201 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </form>
         </div>
 
-        {/* Email & SMTP Engine Card */}
+        {/* Email & Outgoing Dispatch Engine Card */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
             <div className="flex items-center space-x-2">
               <Mail className="w-4 h-4 text-amber-500" />
               <h2 className="text-xs font-bold uppercase tracking-wider text-slate-900">
                 Outgoing Email Engine &amp; Dispatcher
               </h2>
             </div>
-            {smtpConfig.isConfigured ? (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                Custom SMTP Active
+            {emailConfig.mode === 'apps_script' ? (
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border flex items-center space-x-1 ${
+                emailConfig.appsScriptUrl ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-amber-100 text-amber-800 border-amber-300'
+              }`}>
+                <Sparkles className="w-3 h-3 text-emerald-600" />
+                <span>{emailConfig.appsScriptUrl ? 'Google Apps Script Relay Active' : 'Apps Script (Setup Required)'}</span>
+              </span>
+            ) : emailConfig.mode === 'manual' ? (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300 flex items-center space-x-1">
+                <Copy className="w-3 h-3 text-blue-600" />
+                <span>Manual Clipboard Mode Active</span>
               </span>
             ) : (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                Ethereal Live Preview Mode
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                emailConfig.isConfigured ? 'bg-purple-100 text-purple-800 border-purple-300' : 'bg-slate-100 text-slate-700 border-slate-300'
+              }`}>
+                {emailConfig.isConfigured ? 'Custom SMTP Active' : 'SMTP Ethereal Test Mode'}
               </span>
             )}
           </div>
 
-          <p className="text-xs text-slate-500">
-            Automated emails for <strong>Payment Reminders</strong> and <strong>Customer Marketing Campaigns</strong> are dispatched with the logged-in staff member as the sender (<em>{currentUser.name} &lt;{currentUser.email}&gt;</em>). Configure your store's custom SMTP or use the built-in test mailbox.
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Automated emails for <strong>Payment Reminders</strong>, <strong>Customer Marketing Campaigns</strong>, and <strong>User Invitations</strong> are sent from the logged-in staff member (<em>{currentUser.name} &lt;{currentUser.email}&gt;</em>). If company restrictions block SMTP ports, choose <strong>Google Apps Script Relay</strong> or <strong>Manual Mode</strong> below!
           </p>
 
-          {smtpSuccess && (
+          {/* Mode Selector Tabs */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-1.5 bg-slate-100 rounded-xl border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setEmailConfig({ ...emailConfig, mode: 'apps_script' })}
+              className={`p-2.5 rounded-lg text-left transition-all cursor-pointer ${
+                emailConfig.mode === 'apps_script'
+                  ? 'bg-white shadow-sm border border-amber-400 text-slate-900 ring-1 ring-amber-500/20'
+                  : 'hover:bg-slate-200/60 text-slate-600'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold flex items-center space-x-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Google Apps Script</span>
+                </span>
+                {emailConfig.mode === 'apps_script' && <Check className="w-3.5 h-3.5 text-amber-600" />}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                Zero SMTP! Uses a lightweight Google Webhook to send via Gmail.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setEmailConfig({ ...emailConfig, mode: 'manual' })}
+              className={`p-2.5 rounded-lg text-left transition-all cursor-pointer ${
+                emailConfig.mode === 'manual'
+                  ? 'bg-white shadow-sm border border-blue-400 text-slate-900 ring-1 ring-blue-500/20'
+                  : 'hover:bg-slate-200/60 text-slate-600'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold flex items-center space-x-1.5">
+                  <Copy className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Manual Clipboard</span>
+                </span>
+                {emailConfig.mode === 'manual' && <Check className="w-3.5 h-3.5 text-blue-600" />}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                1-click copy or open in Outlook/Gmail web with full formatted drafts.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setEmailConfig({ ...emailConfig, mode: 'smtp' })}
+              className={`p-2.5 rounded-lg text-left transition-all cursor-pointer ${
+                emailConfig.mode === 'smtp'
+                  ? 'bg-white shadow-sm border border-purple-400 text-slate-900 ring-1 ring-purple-500/20'
+                  : 'hover:bg-slate-200/60 text-slate-600'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold flex items-center space-x-1.5">
+                  <Mail className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Custom SMTP</span>
+                </span>
+                {emailConfig.mode === 'smtp' && <Check className="w-3.5 h-3.5 text-purple-600" />}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                Standard host/port server configuration with app password.
+              </p>
+            </button>
+          </div>
+
+          {emailSuccess && (
             <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs rounded-lg flex items-center">
               <CheckCircle className="w-4 h-4 mr-2 text-emerald-600 shrink-0" />
-              <span>{smtpSuccess}</span>
+              <span>{emailSuccess}</span>
             </div>
           )}
 
-          {smtpError && (
-            <div className="p-3 bg-rose-50 border border-rose-300 text-rose-900 text-xs rounded-lg flex items-center">
-              <AlertCircle className="w-4 h-4 mr-2 text-rose-600 shrink-0" />
-              <span>{smtpError}</span>
+          {emailError && (
+            <div className="space-y-3">
+              <div className="p-3 bg-rose-50 border border-rose-300 text-rose-900 text-xs rounded-lg flex items-center">
+                <AlertCircle className="w-4 h-4 mr-2 text-rose-600 shrink-0" />
+                <span>{emailError}</span>
+              </div>
+
+              {(emailError.includes('Authorization') ||
+                emailError.includes('permission to call MailApp') ||
+                emailError.includes('auth/script.send_mail') ||
+                emailError.includes('auth/gmail.send') ||
+                emailError.includes('You do not have permission')) && (
+                <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl space-y-3 text-xs text-amber-950">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-200/60 pb-2.5">
+                    <div className="flex items-center space-x-2">
+                      <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span className="font-bold text-slate-900">
+                        Quick Fix: 1-Time Authorization Required in Google
+                      </span>
+                    </div>
+                    <span className="text-[10px] bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded-full self-start sm:self-auto">
+                      Takes 30 seconds
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-700 leading-relaxed">
+                    Google blocks external webhooks from sending emails until you run the script once inside the Google Apps Script code editor. Follow these 4 quick steps:
+                  </p>
+
+                  <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-slate-800 font-medium bg-white/80 p-3 rounded-lg border border-amber-200">
+                    <li>
+                      Open your script project in{' '}
+                      <a
+                        href="https://script.google.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-amber-800 underline font-bold"
+                      >
+                        script.google.com
+                      </a>
+                    </li>
+                    <li>
+                      In the top toolbar dropdown menu (next to &quot;Debug&quot;), choose <strong>authorizeScript</strong>
+                    </li>
+                    <li>
+                      Click the <strong>▶ Run</strong> button &rarr; <strong>Review permissions</strong> &rarr; <strong>Advanced</strong> &rarr; <strong>Allow</strong>
+                    </li>
+                    <li>
+                      Return here and click <strong>&quot;Ping / Verify Webhook&quot;</strong> (your existing URL will work immediately without redeploying!)
+                    </li>
+                  </ol>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <a
+                      href="https://script.google.com"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold rounded-lg text-xs inline-flex items-center space-x-1.5 transition-colors shadow-2xs"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Open script.google.com</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => setShowScriptModal(true)}
+                      className="px-3 py-1.5 bg-white hover:bg-amber-100 text-slate-800 border border-amber-300 font-bold rounded-lg text-xs inline-flex items-center space-x-1.5 transition-colors cursor-pointer"
+                    >
+                      <Code className="w-3.5 h-3.5 text-amber-600" />
+                      <span>View Full Script Code</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const updated = { ...emailConfig, mode: 'manual' as const };
+                        setEmailConfig(updated);
+                        await api.updateEmailConfig(updated);
+                        setEmailError('');
+                        setEmailSuccess('Switched to 1-Click Manual Mode! Zero SMTP or Google configuration needed.');
+                        setTimeout(() => setEmailSuccess(''), 5000);
+                      }}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs inline-flex items-center space-x-1.5 transition-colors cursor-pointer sm:ml-auto shadow-2xs"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Switch to Manual Clipboard Mode</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -577,95 +810,209 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
           )}
 
-          <form onSubmit={handleSaveSmtp} className="space-y-3 text-xs">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block font-semibold mb-1">SMTP Server Host</label>
-                <input
-                  type="text"
-                  placeholder="e.g. smtp.gmail.com"
-                  value={smtpConfig.host}
-                  onChange={e => setSmtpConfig({ ...smtpConfig, host: e.target.value })}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-[11px]"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">SMTP Port</label>
-                <input
-                  type="number"
-                  placeholder="587"
-                  value={smtpConfig.port}
-                  onChange={e => setSmtpConfig({ ...smtpConfig, port: parseInt(e.target.value, 10) || 587 })}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-[11px]"
-                />
-              </div>
-            </div>
+          <form onSubmit={handleSaveEmailConfig} className="space-y-4 text-xs">
+            {/* GOOGLE APPS SCRIPT RELAY VIEW */}
+            {emailConfig.mode === 'apps_script' && (
+              <div className="p-4 bg-amber-50/50 border border-amber-200 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-xs flex items-center space-x-1.5">
+                      <Sparkles className="w-4 h-4 text-amber-600" />
+                      <span>Google Apps Script Webhook Relay</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Sends emails seamlessly through your Google/Gmail account via a safe Google Web App endpoint.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowScriptModal(true)}
+                    className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[11px] flex items-center space-x-1 transition-colors cursor-pointer shadow-2xs"
+                  >
+                    <Code className="w-3.5 h-3.5" />
+                    <span>View Script &amp; Instructions</span>
+                  </button>
+                </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block font-semibold mb-1">SMTP Username / Account</label>
-                <input
-                  type="text"
-                  placeholder="account@casacentralstore.com"
-                  value={smtpConfig.user}
-                  onChange={e => setSmtpConfig({ ...smtpConfig, user: e.target.value })}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-[11px]"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">
-                  SMTP App Password / Secret {smtpConfig.hasPassword && <span className="text-emerald-600 font-normal">(Saved)</span>}
-                </label>
-                <input
-                  type="password"
-                  placeholder={smtpConfig.hasPassword ? '••••••••••••' : 'App Password'}
-                  value={smtpConfig.pass}
-                  onChange={e => setSmtpConfig({ ...smtpConfig, pass: e.target.value })}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-[11px]"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block font-semibold mb-1">Default From Header</label>
-                <input
-                  type="text"
-                  placeholder="Casa Central Store <ecommerce@casacentralstore.com>"
-                  value={smtpConfig.defaultFrom}
-                  onChange={e => setSmtpConfig({ ...smtpConfig, defaultFrom: e.target.value })}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-[11px]"
-                />
-              </div>
-              <div className="flex items-center pt-5">
-                <label className="flex items-center space-x-2 cursor-pointer">
+                <div>
+                  <label className="block font-semibold mb-1 text-slate-800">
+                    Google Apps Script Web App URL <span className="text-rose-500">*</span>
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={smtpConfig.secure}
-                    onChange={e => setSmtpConfig({ ...smtpConfig, secure: e.target.checked })}
-                    className="w-4 h-4 text-amber-500 rounded border-slate-300 focus:ring-amber-500"
+                    type="url"
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                    value={emailConfig.appsScriptUrl}
+                    onChange={e => setEmailConfig({ ...emailConfig, appsScriptUrl: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-[11px] bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20"
                   />
-                  <span className="font-semibold text-slate-700">SSL/TLS Secure (Port 465)</span>
-                </label>
+                  <div className="flex items-center justify-between mt-1 text-[10px] text-slate-500">
+                    <span>Must be a deployed Web App URL ending in <code className="text-amber-800 font-bold">/exec</code></span>
+                    <button
+                      type="button"
+                      onClick={handleVerifyEmailConnection}
+                      disabled={verifyingEmail || !emailConfig.appsScriptUrl}
+                      className="font-bold text-amber-700 hover:text-amber-800 underline cursor-pointer disabled:opacity-40"
+                    >
+                      {verifyingEmail ? 'Testing connection...' : 'Ping / Verify Webhook'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  <div>
+                    <label className="block font-semibold mb-1 text-slate-800">Default Sender Display Name</label>
+                    <input
+                      type="text"
+                      placeholder="Casa Central Store"
+                      value={emailConfig.defaultFrom}
+                      onChange={e => setEmailConfig({ ...emailConfig, defaultFrom: e.target.value })}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white text-[11px]"
+                    />
+                  </div>
+                  <div className="p-2.5 bg-white border border-amber-200/80 rounded-lg text-[11px] text-slate-600 flex items-start space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <span>
+                      <strong>No SMTP Password Required!</strong> Runs with your standard daily Google account quota.
+                    </span>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* MANUAL CLIPBOARD VIEW */}
+            {emailConfig.mode === 'manual' && (
+              <div className="p-4 bg-blue-50/50 border border-blue-200 rounded-xl space-y-3">
+                <div className="flex items-center space-x-2">
+                  <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center text-blue-700">
+                    <Copy className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-xs">Manual Dispatch Mode Active</h3>
+                    <p className="text-[11px] text-slate-500">
+                      Zero setup required. Perfect if you want complete manual control in Outlook or Gmail.
+                    </p>
+                  </div>
+                </div>
+                <div className="p-3 bg-white border border-blue-100 rounded-lg text-slate-700 text-xs space-y-1.5 leading-relaxed">
+                  <p>In this mode, all email screens offer immediate buttons to:</p>
+                  <ul className="list-disc list-inside space-y-1 text-[11px] text-slate-600">
+                    <li><strong>Copy Formatted Email (HTML &amp; Plain Text):</strong> Paste directly into any email compose window.</li>
+                    <li><strong>Open in Email App (<code className="text-blue-800">mailto:</code>):</strong> Launches Outlook, Apple Mail, or Thunderbird with recipient and subject pre-filled.</li>
+                    <li><strong>Open in Gmail Web Composer:</strong> Launches Gmail in a new tab with your pre-drafted subject and body.</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* CUSTOM SMTP VIEW */}
+            {emailConfig.mode === 'smtp' && (
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <h3 className="font-bold text-slate-900 text-xs flex items-center space-x-1.5">
+                  <Mail className="w-4 h-4 text-purple-600" />
+                  <span>Custom SMTP Server Parameters</span>
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold mb-1">SMTP Server Host</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. smtp.gmail.com"
+                      value={emailConfig.host}
+                      onChange={e => setEmailConfig({ ...emailConfig, host: e.target.value })}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-[11px] bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1">SMTP Port</label>
+                    <input
+                      type="number"
+                      placeholder="587"
+                      value={emailConfig.port}
+                      onChange={e => setEmailConfig({ ...emailConfig, port: parseInt(e.target.value, 10) || 587 })}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-[11px] bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold mb-1">SMTP Username / Account</label>
+                    <input
+                      type="text"
+                      placeholder="account@casacentralstore.com"
+                      value={emailConfig.user}
+                      onChange={e => setEmailConfig({ ...emailConfig, user: e.target.value })}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-[11px] bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1">
+                      SMTP App Password / Secret {emailConfig.hasPassword && <span className="text-emerald-600 font-normal">(Saved)</span>}
+                    </label>
+                    <input
+                      type="password"
+                      placeholder={emailConfig.hasPassword ? '••••••••••••' : 'App Password'}
+                      value={emailConfig.pass}
+                      onChange={e => setEmailConfig({ ...emailConfig, pass: e.target.value })}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-[11px] bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold mb-1">Default From Header</label>
+                    <input
+                      type="text"
+                      placeholder="Casa Central Store <ecommerce@casacentralstore.com>"
+                      value={emailConfig.defaultFrom}
+                      onChange={e => setEmailConfig({ ...emailConfig, defaultFrom: e.target.value })}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-[11px] bg-white"
+                    />
+                  </div>
+                  <div className="flex items-center pt-5">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={emailConfig.secure}
+                        onChange={e => setEmailConfig({ ...emailConfig, secure: e.target.checked })}
+                        className="w-4 h-4 text-amber-500 rounded border-slate-300 focus:ring-amber-500"
+                      />
+                      <span className="font-semibold text-slate-700">SSL/TLS Secure (Port 465)</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {isAdmin && (
-              <button
-                type="submit"
-                disabled={savingSmtp}
-                className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg shadow-2xs flex items-center justify-center cursor-pointer disabled:opacity-50"
-              >
-                <Save className="w-4 h-4 mr-1.5 text-amber-400" />
-                {savingSmtp ? 'Saving Email Settings...' : 'Save Email Server Configuration'}
-              </button>
+              <div className="flex items-center space-x-3 pt-1">
+                <button
+                  type="submit"
+                  disabled={savingEmail}
+                  className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg shadow-2xs flex items-center justify-center cursor-pointer disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4 mr-1.5 text-amber-400" />
+                  {savingEmail ? 'Saving Email Settings...' : 'Save Email Configuration'}
+                </button>
+                {emailConfig.mode !== 'manual' && (
+                  <button
+                    type="button"
+                    onClick={handleVerifyEmailConnection}
+                    disabled={verifyingEmail}
+                    className="px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold rounded-lg text-xs transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {verifyingEmail ? 'Verifying...' : 'Verify Engine'}
+                  </button>
+                )}
+              </div>
             )}
           </form>
 
           {/* Test Email Dispatch Section */}
           <div className="pt-3 border-t border-slate-100">
             <label className="block font-bold text-slate-800 mb-1.5 text-xs">
-              Test Real Email Dispatch
+              Test Real Email Dispatch ({emailConfig.mode === 'apps_script' ? 'via Google Apps Script' : emailConfig.mode === 'manual' ? 'via Manual Preview' : 'via SMTP'})
             </label>
             <div className="flex gap-2">
               <input
@@ -673,7 +1020,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 placeholder="Recipient email address..."
                 value={testEmailAddress}
                 onChange={e => setTestEmailAddress(e.target.value)}
-                className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded"
+                className="flex-1 px-2.5 py-1.5 text-xs border border-slate-300 rounded bg-white"
               />
               <button
                 type="button"
@@ -691,6 +1038,76 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 )}
               </button>
             </div>
+
+            {/* Manual Email Draft Card (Preview & 1-Click Actions) */}
+            {manualTestDraft && (
+              <div className="mt-3 p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-100 pb-2.5">
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-xs flex items-center space-x-1.5">
+                      <Copy className="w-4 h-4 text-blue-600" />
+                      <span>Manual Test Email Draft Generated</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      To: <strong>{manualTestDraft.to}</strong> &bull; Subject: <em>{manualTestDraft.subject}</em>
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await copyEmailToClipboard({
+                          to: manualTestDraft.to,
+                          subject: manualTestDraft.subject,
+                          bodyText: manualTestDraft.body,
+                        });
+                        setManualTestCopied(true);
+                        setTimeout(() => setManualTestCopied(false), 3000);
+                      }}
+                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold rounded-lg text-xs flex items-center space-x-1.5 transition-colors cursor-pointer shadow-2xs"
+                    >
+                      {manualTestCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{manualTestCopied ? 'Copied to Clipboard!' : 'Copy Formatted Email'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = buildMailtoUrl({
+                          to: manualTestDraft.to,
+                          subject: manualTestDraft.subject,
+                          body: manualTestDraft.body,
+                        });
+                        window.open(url, '_blank');
+                      }}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold rounded-lg text-xs flex items-center space-x-1.5 transition-colors cursor-pointer shadow-2xs"
+                      title="Open in default email app (Outlook, Apple Mail, etc.)"
+                    >
+                      <Mail className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Open in Mail App</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = buildGmailComposeUrl({
+                          to: manualTestDraft.to,
+                          subject: manualTestDraft.subject,
+                          body: manualTestDraft.body,
+                        });
+                        window.open(url, '_blank', 'noopener,noreferrer');
+                      }}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold rounded-lg text-xs flex items-center space-x-1.5 transition-colors cursor-pointer shadow-2xs"
+                      title="Open pre-filled in Gmail"
+                    >
+                      <Globe className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Open in Gmail</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="p-3 bg-white border border-blue-200 rounded-lg font-mono text-[11px] text-slate-700 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto">
+                  {manualTestDraft.body}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1257,6 +1674,123 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         isOpen={showBackupModal}
         onClose={() => setShowBackupModal(false)}
       />
+
+      {/* Google Apps Script Relay Helper & Code Modal */}
+      {showScriptModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-4 sm:p-5 bg-linear-to-r from-amber-500 to-amber-600 text-slate-950 flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-slate-950 text-amber-400 flex items-center justify-center">
+                  <Code className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-slate-950">
+                    Google Apps Script Email Relay Code
+                  </h3>
+                  <p className="text-[11px] text-slate-900 font-medium">
+                    Deploy this 15-line script to send emails directly with zero SMTP!
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowScriptModal(false)}
+                className="text-slate-950/80 hover:text-slate-950 p-1.5 rounded-lg hover:bg-black/10 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4 text-xs bg-slate-50">
+              {/* Instructions steps */}
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                <h4 className="font-bold text-slate-900 text-xs flex items-center space-x-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                  <span>3-Minute Setup Instructions:</span>
+                </h4>
+                <ol className="list-decimal list-inside space-y-2 text-slate-700 text-[11px] leading-relaxed">
+                  <li>
+                    Open <a href="https://script.google.com" target="_blank" rel="noreferrer" className="text-amber-700 underline font-bold">script.google.com</a> and click <strong>New project</strong>.
+                  </li>
+                  <li>
+                    Replace all existing code with the script below, and save (<kbd className="bg-slate-100 border border-slate-300 px-1 py-0.5 rounded text-[10px]">Ctrl+S</kbd>).
+                  </li>
+                  <li className="p-2.5 bg-amber-50 border border-amber-300 rounded-lg text-amber-950 font-medium">
+                    <strong className="text-amber-900 block mb-1">⚠️ MANDATORY ONE-TIME STEP: Grant Google Permissions</strong>
+                    In the top toolbar dropdown menu (next to &quot;Debug&quot;), select <strong>authorizeScript</strong>. Click the <strong>▶ Run</strong> button.
+                    <ul className="list-disc list-inside mt-1 ml-2 space-y-0.5 text-[10px] text-amber-900">
+                      <li>A popup will ask for permissions &rarr; click <strong>Review permissions</strong></li>
+                      <li>Choose your Google Account</li>
+                      <li>Click <strong>Advanced</strong> (small text on bottom-left) &rarr; <strong>Go to Casa Central Relay (unsafe)</strong></li>
+                      <li>Click <strong>Allow</strong> &rarr; wait for &quot;Execution completed&quot; in the log box</li>
+                    </ul>
+                  </li>
+                  <li>
+                    Click <strong>Deploy &rarr; New deployment</strong> in the top right corner.
+                  </li>
+                  <li>
+                    Click the gear icon next to &quot;Select type&quot;, choose <strong>Web app</strong>.
+                  </li>
+                  <li>
+                    Set <strong>Execute as:</strong> <code className="bg-slate-100 text-slate-800 px-1 rounded">Me</code> and <strong>Who has access:</strong> <code className="bg-amber-100 text-amber-900 font-bold px-1 rounded">Anyone</code>.
+                  </li>
+                  <li>
+                    Click <strong>Deploy</strong> and copy your <strong>Web app URL</strong> (ends in <code className="text-amber-700 font-bold">/exec</code>).
+                  </li>
+                  <li>
+                    Paste the Web app URL into <strong>Settings &rarr; Email Delivery</strong> and click <strong>Save</strong>!
+                  </li>
+                  <li className="text-slate-500 italic">
+                    Already deployed previously before authorizing? No need to redeploy! Just run <strong>authorizeScript</strong> once in the editor, and your existing URL will start working immediately.
+                  </li>
+                </ol>
+              </div>
+
+              {/* Code Box */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-bold text-slate-700 text-xs">Ready-to-Deploy Code:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(APPS_SCRIPT_SAMPLE_CODE);
+                      setScriptCopied(true);
+                      setTimeout(() => setScriptCopied(false), 2500);
+                    }}
+                    className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold rounded-lg text-xs flex items-center space-x-1.5 cursor-pointer shadow-2xs transition-colors"
+                  >
+                    {scriptCopied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-emerald-400">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy Script Code</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <pre className="p-3 bg-slate-950 text-slate-200 rounded-xl font-mono text-[11px] leading-relaxed overflow-x-auto max-h-[300px] border border-slate-800">
+                  {APPS_SCRIPT_SAMPLE_CODE}
+                </pre>
+              </div>
+            </div>
+
+            <div className="p-4 bg-white border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowScriptModal(false)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Change Password Modal */}
       <ChangePasswordModal

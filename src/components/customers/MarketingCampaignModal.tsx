@@ -22,7 +22,11 @@ import {
   Trash2,
   Check,
   Tag,
+  Copy,
+  Globe,
+  CheckCircle2,
 } from 'lucide-react';
+import { copyEmailToClipboard, buildMailtoUrl, buildGmailComposeUrl } from '../../utils/emailHelper.ts';
 
 interface MarketingCampaignModalProps {
   isOpen: boolean;
@@ -312,6 +316,46 @@ export const MarketingCampaignModal: React.FC<MarketingCampaignModalProps> = ({
     } finally {
       setSending(false);
     }
+  };
+
+  const [copySuccessToast, setCopySuccessToast] = useState<string | null>(null);
+
+  const buildCampaignPlainText = () => {
+    const productsText = products.map((p, idx) => 
+      `#${idx + 1}. ${p.brand ? p.brand.toUpperCase() : 'APPLIANCE'} - Model: ${p.model_number}\nPrice: ${formatCurrency(Number(p.price) || 0)}\n${p.description}\n`
+    ).join('\n');
+
+    return `${headline}\n\nDear Valued Customer,\n\n${introMessage}\n\nFEATURED PRODUCTS THIS WEEK:\n==================================================\n${productsText}\n==================================================\n\nYour Personal Sales Advisor: ${currentUser.name}\nDirect: ${currentUser.email} | Store: (201) 867-4200\nCasa Central Store | 405 32nd St, Union City, NJ 07087`;
+  };
+
+  const handleCopyCampaignEmail = async () => {
+    const text = buildCampaignPlainText();
+    const success = await copyEmailToClipboard({
+      subject,
+      bodyText: text,
+    });
+    if (success) {
+      setCopySuccessToast('Campaign email copied to clipboard! Paste directly into Outlook, Gmail, or your email app (Ctrl+V / Cmd+V).');
+      setTimeout(() => setCopySuccessToast(null), 4500);
+    }
+  };
+
+  const handleOpenCampaignMailApp = () => {
+    const text = buildCampaignPlainText();
+    const url = buildMailtoUrl({
+      subject,
+      body: text,
+    });
+    window.open(url, '_blank');
+  };
+
+  const handleOpenCampaignGmailWeb = () => {
+    const text = buildCampaignPlainText();
+    const url = buildGmailComposeUrl({
+      subject,
+      body: text,
+    });
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   if (!isOpen) return null;
@@ -901,8 +945,68 @@ export const MarketingCampaignModal: React.FC<MarketingCampaignModalProps> = ({
 
           {/* TAB 3: LIVE EMAIL PREVIEW */}
           {activeTab === 'preview' && (
-            <div className="bg-slate-800 p-4 sm:p-6 rounded-2xl flex justify-center">
-              <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden text-slate-800 font-sans border border-slate-200">
+            <div className="space-y-4">
+              {/* Manual Dispatch & Clipboard Action Toolbar */}
+              <div className="bg-amber-500/10 border border-amber-300 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex items-center space-x-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center font-bold">
+                    <Copy className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-slate-900">
+                      Manual Campaign Dispatch &amp; Copy Tools
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      Copy campaign catalog to clipboard or open directly in Outlook / Gmail
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyCampaignEmail}
+                    disabled={!allProductsValid}
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold rounded-lg text-xs flex items-center space-x-1.5 cursor-pointer shadow-2xs transition-colors disabled:opacity-50"
+                    title="Copy full campaign text to clipboard"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Formatted Campaign</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleOpenCampaignMailApp}
+                    disabled={!allProductsValid}
+                    className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold rounded-lg text-xs flex items-center space-x-1.5 cursor-pointer shadow-2xs transition-colors disabled:opacity-50"
+                    title="Launch default email app (Outlook, Apple Mail, etc.)"
+                  >
+                    <Mail className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Open Mail App</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleOpenCampaignGmailWeb}
+                    disabled={!allProductsValid}
+                    className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold rounded-lg text-xs flex items-center space-x-1.5 cursor-pointer shadow-2xs transition-colors disabled:opacity-50"
+                    title="Open pre-filled draft in Gmail web composer"
+                  >
+                    <Globe className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Open in Gmail</span>
+                  </button>
+                </div>
+              </div>
+
+              {copySuccessToast && (
+                <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-xl text-xs flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-medium">{copySuccessToast}</span>
+                </div>
+              )}
+
+              <div className="bg-slate-800 p-4 sm:p-6 rounded-2xl flex justify-center">
+                <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden text-slate-800 font-sans border border-slate-200">
                 
                 {/* Email Header */}
                 <div className="bg-slate-900 px-6 py-5 border-b-4 border-amber-500 flex items-center justify-between">
@@ -1015,6 +1119,7 @@ export const MarketingCampaignModal: React.FC<MarketingCampaignModalProps> = ({
 
               </div>
             </div>
+            </div>
           )}
 
         </div>
@@ -1036,6 +1141,18 @@ export const MarketingCampaignModal: React.FC<MarketingCampaignModalProps> = ({
               Cancel
             </button>
 
+            {/* Copy Email Button */}
+            <button
+              type="button"
+              disabled={!allProductsValid}
+              onClick={handleCopyCampaignEmail}
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg transition-colors cursor-pointer disabled:opacity-50 flex items-center"
+              title="Copy campaign email text to clipboard to paste into your mail app"
+            >
+              <Copy className="w-3.5 h-3.5 mr-1.5 text-slate-600" />
+              Copy Campaign
+            </button>
+
             {/* Test Email Button */}
             <button
               type="button"
@@ -1045,7 +1162,7 @@ export const MarketingCampaignModal: React.FC<MarketingCampaignModalProps> = ({
               title={`Send instant test email to ${currentUser.email || 'your address'}`}
             >
               <Mail className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
-              Send Test Email to Me
+              Send Test to Me
             </button>
 
             {/* Send Full Campaign Button */}

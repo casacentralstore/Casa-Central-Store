@@ -363,7 +363,11 @@ export interface MarketingCampaignPayload {
   testEmail?: string;
 }
 
+export type EmailDispatchMode = 'apps_script' | 'manual' | 'smtp';
+
 export interface EmailConfigData {
+  mode: EmailDispatchMode;
+  appsScriptUrl?: string;
   host: string;
   port: number;
   secure: boolean;
@@ -373,3 +377,4 @@ export interface EmailConfigData {
   isConfigured: boolean;
   hasPassword?: boolean;
 }
+
